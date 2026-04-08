@@ -103,9 +103,10 @@ The project is pre-configured for Render via `render.yaml`.
 ## Environment Configuration
 
 ### Backend (Python)
-No env vars needed for local dev. For Render:
+Set TMDB credentials for local and Render environments:
 - Python version: 3.12 (already in `render.yaml`)
-- Data files: Loaded from `data/` directory (included in repo)
+- `TMDB_READ_ACCESS_TOKEN` (preferred)
+- `TMDB_API_KEY` (optional fallback)
 
 ### Frontend (React)
 Create `frontend/.env` with:
@@ -123,11 +124,6 @@ cp .env.example .env
 
 ## Troubleshooting
 
-### "ModuleNotFoundError: No module named sentence_transformers"
-```bash
-pip install -r requirements.txt
-```
-
 ### "npm: command not found"
 Install Node.js from https://nodejs.org
 
@@ -137,9 +133,7 @@ Install Node.js from https://nodejs.org
 3. Check CORS is enabled (it is by default)
 
 ### Slow initial load
-- SentenceTransformer model downloads on first run (~100MB)
-- SVD computation happens at startup (few seconds)
-- Subsequent requests are cached and very fast
+- TMDB responses are cached briefly in memory for faster repeated requests
 
 ### "Port 8000 already in use"
 ```bash
@@ -193,8 +187,7 @@ curl -X POST http://localhost:8000/recommend \
 Recommendation_System/
 ├── backend/app/
 │   ├── main.py              ← FastAPI app
-│   ├── recommender.py       ← ML logic
-│   ├── data_loader.py       ← CSV loading
+│   ├── external_catalog.py  ← TMDB client logic
 │   ├── schemas.py           ← Request/response models
 │   ├── settings.py          ← Config (paths, CORS)
 │   └── __init__.py
@@ -212,10 +205,6 @@ Recommendation_System/
 │   ├── package.json
 │   ├── vite.config.js
 │   └── tailwind.config.js
-├── data/
-│   ├── movies.csv
-│   ├── ratings.csv
-│   └── tags.csv
 ├── requirements.txt
 ├── render.yaml              ← Render config
 ├── start.bat                ← Windows startup
@@ -229,6 +218,5 @@ Recommendation_System/
 
 For issues or questions:
 1. Check the README.md in `frontend/` for React-specific details
-2. Verify all data files exist in `data/`
-3. Check backend logs (terminal running uvicorn)
-4. Check frontend logs (Vite dev server terminal)
+2. Check backend logs (terminal running uvicorn)
+3. Check frontend logs (Vite dev server terminal)

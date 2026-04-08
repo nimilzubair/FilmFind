@@ -26,6 +26,8 @@ class MovieCard(BaseModel):
     movie_id: int
     title: str
     genres: list[str]
+    poster_url: str | None = None
+    backdrop_url: str | None = None
     score: float
     signal_source: str
     why_this: str
@@ -34,6 +36,11 @@ class MovieCard(BaseModel):
 class MovieDetail(MovieCard):
     popularity: float
     semantic_text: str | None = None
+    overview: str | None = None
+    actors: list[str] = Field(default_factory=list)
+    duration_minutes: int | None = None
+    media_type: str | None = None
+    release_date: str | None = None
 
 
 class MovieCatalogResponse(BaseModel):

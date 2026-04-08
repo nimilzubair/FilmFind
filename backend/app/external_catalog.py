@@ -8,7 +8,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency fallback
     httpx = None
 
-from .settings import TMDB_API_KEY, TMDB_BASE_URL, TMDB_IMAGE_BASE_URL
+from .settings import TMDB_API_KEY, TMDB_BASE_URL, TMDB_IMAGE_BASE_URL, TMDB_READ_ACCESS_TOKEN
 
 
 @dataclass
@@ -20,10 +20,11 @@ class CacheEntry:
 class TmdbCatalogClient:
     def __init__(self) -> None:
         self._cache: dict[str, CacheEntry] = {}
+        self._client = httpx.Client(timeout=6.0) if httpx is not None else None
 
     @property
     def enabled(self) -> bool:
-        return bool(TMDB_API_KEY)
+        return bool(TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY)
 
     def _cache_get(self, key: str) -> object | None:
         entry = self._cache.get(key)
@@ -43,17 +44,26 @@ class TmdbCatalogClient:
             return {}
 
         request_params = {
-            "api_key": TMDB_API_KEY,
             "language": "en-US",
             **params,
         }
+        request_headers: dict[str, str] = {}
+
+        # Prefer TMDB v4 bearer token when available, with API key fallback.
+        if TMDB_READ_ACCESS_TOKEN:
+            request_headers["Authorization"] = f"Bearer {TMDB_READ_ACCESS_TOKEN}"
+        elif TMDB_API_KEY:
+            request_params["api_key"] = TMDB_API_KEY
+
         url = f"{TMDB_BASE_URL}{path}"
 
         try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.get(url, params=request_params)
-                response.raise_for_status()
-                return response.json()
+            if self._client is None:
+                return {}
+
+            response = self._client.get(url, params=request_params, headers=request_headers)
+            response.raise_for_status()
+            return response.json()
         except Exception:
             return {}
 
@@ -94,6 +104,7 @@ class TmdbCatalogClient:
         genre: str | None = None,
         query: str | None = None,
         limit: int = 24,
+        include_cast: bool = True,
     ) -> list[dict[str, object]]:
         if not self.enabled:
             return []
@@ -103,7 +114,7 @@ class TmdbCatalogClient:
         genre_filter = (genre or "").strip().lower()
         movie_map, tv_map = self._genre_maps()
 
-        cache_key = f"latest:{normalized_type}:{genre_filter}:{normalized_query.lower()}:{limit}"
+        cache_key = f"latest:{normalized_type}:{genre_filter}:{normalized_query.lower()}:{limit}:{int(include_cast)}"
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached  # type: ignore[return-value]
@@ -139,7 +150,7 @@ class TmdbCatalogClient:
             if genre_filter and not any(genre_filter in name.lower() for name in genre_names):
                 continue
 
-            actors = self._fetch_actors(raw_type, int(raw_id))
+            actors = self._fetch_actors(raw_type, int(raw_id)) if include_cast and not normalized_query else []
             poster_path = raw.get("poster_path")
             backdrop_path = raw.get("backdrop_path")
             poster_url = f"{TMDB_IMAGE_BASE_URL}{poster_path}" if poster_path else None
@@ -168,3 +179,72 @@ class TmdbCatalogClient:
                 break
 
         return self._cache_set(cache_key, items, ttl_seconds=300)  # type: ignore[return-value]
+
+    def title_detail(self, movie_id: int, media_type: str | None = None) -> dict[str, object] | None:
+        if not self.enabled:
+            return None
+
+        preferred = (media_type or "").strip().lower()
+        ordered_types = [preferred] if preferred in {"movie", "tv"} else ["movie", "tv"]
+        if preferred in {"movie", "tv"}:
+            ordered_types.append("tv" if preferred == "movie" else "movie")
+
+        movie_map, tv_map = self._genre_maps()
+
+        for current_type in ordered_types:
+            cache_key = f"detail:{current_type}:{int(movie_id)}"
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                return cached  # type: ignore[return-value]
+
+            data = self._request_json(
+                f"/{current_type}/{int(movie_id)}",
+                {"append_to_response": "credits"},
+            )
+
+            if not data or not data.get("id"):
+                continue
+
+            title = str(data.get("title") or data.get("name") or "Untitled")
+            genre_names = [str(item.get("name")) for item in data.get("genres", []) if item.get("name")]
+            if not genre_names:
+                genre_ids = [int(genre_id) for genre_id in data.get("genre_ids", []) if genre_id is not None]
+                genre_names = [
+                    (movie_map if current_type == "movie" else tv_map).get(genre_id)
+                    for genre_id in genre_ids
+                ]
+                genre_names = [name for name in genre_names if name]
+
+            credits = data.get("credits", {}) if isinstance(data.get("credits", {}), dict) else {}
+            cast_list = credits.get("cast", []) if isinstance(credits.get("cast", []), list) else []
+            actors = [str(person.get("name")) for person in cast_list[:10] if person.get("name")]
+
+            runtime = data.get("runtime")
+            if runtime is None and current_type == "tv":
+                episode_runtime = data.get("episode_run_time", [])
+                if isinstance(episode_runtime, list) and episode_runtime:
+                    runtime = episode_runtime[0]
+
+            poster_path = data.get("poster_path")
+            backdrop_path = data.get("backdrop_path")
+            detail = {
+                "movie_id": int(data.get("id")),
+                "title": title,
+                "genres": genre_names,
+                "poster_url": f"{TMDB_IMAGE_BASE_URL}{poster_path}" if poster_path else None,
+                "backdrop_url": f"{TMDB_IMAGE_BASE_URL}{backdrop_path}" if backdrop_path else None,
+                "score": float(data.get("vote_average") or 0.0) / 10.0,
+                "signal_source": "tmdb_detail",
+                "why_this": "Detailed metadata from TMDB.",
+                "popularity": float(data.get("popularity") or 0.0),
+                "semantic_text": str(data.get("overview") or "") or None,
+                "overview": str(data.get("overview") or "") or None,
+                "actors": actors,
+                "duration_minutes": int(runtime) if runtime else None,
+                "media_type": current_type,
+                "release_date": str(data.get("release_date") or data.get("first_air_date") or "") or None,
+            }
+
+            return self._cache_set(cache_key, detail, ttl_seconds=900)  # type: ignore[return-value]
+
+        return None

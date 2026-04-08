@@ -2,23 +2,16 @@
 
 A full-stack movie discovery app with Supabase Auth, email verification, trending movies, genre filters, and rating-based personalization.
 
-The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, overview, posters) when `TMDB_API_KEY` is set.
+The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, overview, posters) when TMDB credentials are set.
 
 ## Architecture Overview
 
 ```
 🎬 Data Layer
-├─ movies.csv (titles, genres)
-├─ ratings.csv (user scores)
-└─ tags.csv (user tags)
+└─ TMDB live API (movies, series, genres, cast, artwork)
 
-🧠 ML Engines
-├─ Semantic Engine (SentenceTransformer embeddings)
-├─ Collaborative Engine (SVD matrix factorization)
-└─ Popularity Engine (Bayesian avg + recency weighting)
-
-⚖️ Fusion Layer
-└─ Weighted Ensemble (0.5 collab + 0.3 semantic + 0.2 pop)
+🧠 Personalization Layer
+└─ User like/dislike signals + TMDB search/trending blending
 
 🚀 API
 └─ FastAPI with /health, /search, /genres, /trending, /personalize, /recommend, /catalog/latest, /catalog/genres endpoints
@@ -30,16 +23,10 @@ The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, 
 ## Features
 
 ### Backend (FastAPI)
-- **Three recommendation signals**:
-  - **Collaborative**: User rating patterns via SVD
-  - **Semantic**: Title/genre/tag embeddings via SentenceTransformer
-  - **Popularity**: Bayesian average with recency decay
-- **Weighted ensemble** that balances all signals
-- **Signal explanations** for each recommendation ("Why this?")
-- **User taste profile** as genre radar chart
-- **Typeahead search** with fuzzy matching
+- **TMDB-only catalog** for movies and TV series
+- **Typeahead search** backed by TMDB endpoints
 - **Trending feed** and **genre personalization** for FilmFind browsing
-- **Sub-50ms response times** via startup caching
+- **No bundled local CSV movie dataset**
 
 ### Supabase
 - Run [schema.sql](schema.sql) in the Supabase SQL editor
@@ -73,10 +60,13 @@ The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, 
    ```bash
    # Windows (cmd)
    set TMDB_API_KEY=your_tmdb_api_key
+   set TMDB_READ_ACCESS_TOKEN=your_tmdb_read_access_token
 
    # macOS/Linux
    export TMDB_API_KEY=your_tmdb_api_key
+   export TMDB_READ_ACCESS_TOKEN=your_tmdb_read_access_token
    ```
+   You can set either one. If both are set, TMDB read access token is preferred.
    
    API at `http://localhost:8000`
    - `GET /health` - Health check
@@ -131,8 +121,7 @@ The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, 
 Recommendation_System/
 ├─ backend/app/
 │  ├─ main.py              # FastAPI server
-│  ├─ recommender.py       # Hybrid recommendation engine
-│  ├─ data_loader.py       # CSV loading & preprocessing
+│  ├─ external_catalog.py  # TMDB integration client
 │  ├─ schemas.py           # Pydantic models
 │  ├─ settings.py          # Config
 │  └─ __init__.py
@@ -151,20 +140,7 @@ Recommendation_System/
 │  ├─ tailwind.config.js
 │  ├─ package.json
 │  └─ index.html
-├─ data/
-│  ├─ movies.csv
-│  ├─ ratings.csv
-│  └─ tags.csv
 ├─ requirements.txt
 ├─ render.yaml
 └─ README.md
 ```
-
-## Key Implementation Details
-
-- **Embedding Cache**: SentenceTransformer embeddings computed at startup, <50ms per request
-- **SVD Factorization**: Reduces ratings matrix to capture latent factors in collaborative signal
-- **Bayesian Smoothing**: Popularity scores account for rating count, preventing bias toward low-rated movies with few ratings
-- **Signal Visualization**: Each recommendation shows exact scores for all three signals + which was dominant
-- **Responsive UI**: Tailwind grid scales from 1 column (mobile) to 4 columns (XL)
-- **Performance**: Framer Motion uses GPU acceleration; no layout shifts

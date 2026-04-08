@@ -48,6 +48,13 @@ export async function getTrendingMovies(genre = null, limit = 12) {
   return response.data
 }
 
+export async function getMovieDetail(movieId, mediaType = null) {
+  const response = await api.get(`/movies/${movieId}`, {
+    params: { media_type: mediaType || undefined },
+  })
+  return response.data
+}
+
 export async function getPersonalizedMovies({ genre = null, liked_movies = [], disliked_movies = [], top_n = 12 }) {
   const response = await api.post('/personalize', {
     genre,
