@@ -3,6 +3,6 @@ data/
 requirements.txt
 render.yaml
 schema.sql
-src/
+/src/
 venv/
 *.py
