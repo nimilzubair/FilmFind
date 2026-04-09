@@ -15,6 +15,44 @@ const CONTENT_FILTERS = [
   { key: 'music', label: 'Song' },
 ]
 const AUTH_TIMEOUT_MS = 30000
+const configuredAuthRedirect = (import.meta.env.VITE_SUPABASE_AUTH_REDIRECT || '').trim()
+
+function getContentFilterDetails(filterKey) {
+  if (filterKey === 'movie' || filterKey === 'tv') {
+    return { mediaType: filterKey, genreHint: null }
+  }
+
+  if (filterKey === 'documentary') {
+    return { mediaType: 'all', genreHint: 'Documentary' }
+  }
+
+  if (filterKey === 'music') {
+    return { mediaType: 'all', genreHint: 'Music' }
+  }
+
+  return { mediaType: 'all', genreHint: null }
+}
+
+function matchesGenreSelection(movie, selectedGenre) {
+  if (!selectedGenre || selectedGenre === ALL_GENRES) {
+    return true
+  }
+
+  return (movie.genres || []).some((genre) => String(genre).toLowerCase() === String(selectedGenre).toLowerCase())
+}
+
+function matchesContentSelection(movie, selectedContentFilter) {
+  if (!selectedContentFilter || selectedContentFilter === 'all') {
+    return true
+  }
+
+  if (selectedContentFilter === 'movie' || selectedContentFilter === 'tv') {
+    return String(movie.media_type || '').toLowerCase() === selectedContentFilter
+  }
+
+  const expectedGenre = selectedContentFilter === 'documentary' ? 'documentary' : 'music'
+  return (movie.genres || []).some((genre) => String(genre).toLowerCase().includes(expectedGenre))
+}
 
 function isSupabaseLockRaceError(error) {
   const message = String(error?.message || error || '').toLowerCase()
@@ -63,18 +101,15 @@ function StarMeter({ value }) {
   )
 }
 
-function filterMovies(movies, query) {
+function filterMovies(movies, query, selectedGenre = null, selectedContentFilter = 'all') {
   const normalized = query.trim().toLowerCase()
-  if (!normalized) {
-    return movies
-  }
-
   return movies.filter((movie) => {
     const titleMatch = movie.title.toLowerCase().includes(normalized)
     const genreMatch = (movie.genres || []).join(' ').toLowerCase().includes(normalized)
     const actorsMatch = (movie.actors || []).join(' ').toLowerCase().includes(normalized)
     const overviewMatch = String(movie.overview || '').toLowerCase().includes(normalized)
-    return titleMatch || genreMatch || actorsMatch || overviewMatch
+    const queryMatch = !normalized || titleMatch || genreMatch || actorsMatch || overviewMatch
+    return queryMatch && matchesGenreSelection(movie, selectedGenre) && matchesContentSelection(movie, selectedContentFilter)
   })
 }
 
@@ -194,6 +229,7 @@ export default function App() {
   const [password, setPassword] = useState('')
   const [authMessage, setAuthMessage] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
+  const [profileLoaded, setProfileLoaded] = useState(false)
 
   const [genres, setGenres] = useState([ALL_GENRES])
   const [selectedGenre, setSelectedGenre] = useState(ALL_GENRES)
@@ -212,6 +248,14 @@ export default function App() {
   const [searchCloseSignal, setSearchCloseSignal] = useState(0)
   const [selectedMediaType, setSelectedMediaType] = useState('all')
   const [selectedContentFilter, setSelectedContentFilter] = useState('all')
+
+  const authRedirectUrl = useMemo(() => {
+    if (configuredAuthRedirect) {
+      return configuredAuthRedirect
+    }
+
+    return `${window.location.origin}/`
+  }, [])
 
   const setHashRoute = (hash) => {
     const normalized = hash.startsWith('#') ? hash : `#${hash}`
@@ -257,21 +301,24 @@ export default function App() {
   }
 
   const selectedGenreValue = selectedGenre === ALL_GENRES ? null : selectedGenre
-  const activeGenreForFeed = selectedGenreValue || preferredGenres[0] || null
+  const contentFilterDetails = getContentFilterDetails(selectedContentFilter)
+  const apiMediaType = contentFilterDetails.mediaType
+  const apiGenreHint = selectedGenreValue || contentFilterDetails.genreHint
+  const activeGenreForFeed = selectedGenreValue || contentFilterDetails.genreHint || preferredGenres[0] || null
 
   const filteredTrendingMovies = useMemo(
-    () => filterMovies(trendingMovies, searchQuery),
-    [trendingMovies, searchQuery],
+    () => filterMovies(trendingMovies, searchQuery, selectedGenreValue, selectedContentFilter),
+    [trendingMovies, searchQuery, selectedGenreValue, selectedContentFilter],
   )
 
   const filteredLiveCatalog = useMemo(
-    () => filterMovies(liveCatalog, searchQuery),
-    [liveCatalog, searchQuery],
+    () => filterMovies(liveCatalog, searchQuery, selectedGenreValue, selectedContentFilter),
+    [liveCatalog, searchQuery, selectedGenreValue, selectedContentFilter],
   )
 
   const filteredPersonalizedMovies = useMemo(
-    () => filterMovies(personalizedMovies, searchQuery),
-    [personalizedMovies, searchQuery],
+    () => filterMovies(personalizedMovies, searchQuery, selectedGenreValue, selectedContentFilter),
+    [personalizedMovies, searchQuery, selectedGenreValue, selectedContentFilter],
   )
 
   const sortedGenres = useMemo(
@@ -306,8 +353,8 @@ export default function App() {
       const isSearching = normalizedQuery.length > 0
       const items = await getLatestCatalog({
         // During search, query across all media and do not constrain by preference genre.
-        media_type: isSearching ? 'all' : selectedMediaType,
-        genre: isSearching ? null : activeGenreForFeed,
+        media_type: isSearching ? apiMediaType : apiMediaType,
+        genre: isSearching ? apiGenreHint : apiGenreHint,
         query: isSearching ? normalizedQuery : null,
         limit: isSearching ? 64 : 84,
       })
@@ -324,7 +371,7 @@ export default function App() {
 
   const loadTrending = async () => {
     try {
-      const data = await getTrendingMovies(activeGenreForFeed, 24)
+      const data = await getTrendingMovies(apiGenreHint, 24)
       setTrendingMovies(data)
       return data
     } catch (error) {
@@ -345,8 +392,8 @@ export default function App() {
       }
 
       const items = await getHighlyRatedCatalog({
-        media_type: selectedMediaType,
-        genre: activeGenreForFeed,
+        media_type: apiMediaType,
+        genre: apiGenreHint,
         limit: 36,
       })
       setHighlyRatedMovies(items)
@@ -382,7 +429,7 @@ export default function App() {
 
     try {
       const data = await getPersonalizedMovies({
-        genre: activeGenreForFeed,
+        genre: selectedGenreValue || apiGenreHint,
         rated_items,
         preferred_genres: preferredGenres,
         mood: selectedMood,
@@ -435,10 +482,61 @@ export default function App() {
     setRatedMovies(nextRatings)
     const nextFavoriteGenres = buildFavoriteGenres(nextRatings)
     setPreferredGenres(nextFavoriteGenres)
-    if (nextFavoriteGenres.length && selectedGenre === ALL_GENRES) {
-      setSelectedGenre(nextFavoriteGenres[0])
-    }
     return nextRatings
+  }
+
+  const loadProfile = async (currentSession) => {
+    if (!supabase || !currentSession) {
+      return { profile: null, error: null }
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('selected_genre, selected_content_filter, selected_media_type, onboarding_completed, email_verified, full_name')
+      .eq('id', currentSession.user.id)
+      .maybeSingle()
+
+    if (error) {
+      return { profile: null, error }
+    }
+
+    return {
+      profile: data,
+      error: null,
+    }
+  }
+
+  const saveProfilePreferences = async (currentSession, nextValues = {}) => {
+    if (!supabase || !currentSession) {
+      return
+    }
+
+    const payload = {
+      id: currentSession.user.id,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_genre')) {
+      payload.selected_genre = nextValues.selected_genre
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_content_filter')) {
+      payload.selected_content_filter = nextValues.selected_content_filter
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_media_type')) {
+      payload.selected_media_type = nextValues.selected_media_type
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'onboarding_completed')) {
+      payload.onboarding_completed = nextValues.onboarding_completed
+    }
+
+    const { error } = await supabase.from('profiles').upsert(payload)
+
+    if (error) {
+      setMovieError(error.message)
+    }
   }
 
   const safeGetSession = async () => {
@@ -489,15 +587,57 @@ export default function App() {
       }
 
       const currentUrl = new URL(window.location.href)
+      const cleanupAuthUrl = () => {
+        currentUrl.searchParams.delete('code')
+        currentUrl.searchParams.delete('type')
+        currentUrl.searchParams.delete('error')
+        currentUrl.searchParams.delete('error_code')
+        currentUrl.searchParams.delete('error_description')
+        const query = currentUrl.searchParams.toString()
+        window.history.replaceState({}, document.title, `${currentUrl.pathname}${query ? `?${query}` : ''}`)
+      }
+
+      const hashParams = new URLSearchParams((currentUrl.hash || '').replace(/^#/, ''))
+      const accessToken = hashParams.get('access_token')
+      const refreshToken = hashParams.get('refresh_token')
+      const hashErrorDescription = hashParams.get('error_description')
+
+      // Handle email verification callbacks that return tokens in URL hash.
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        })
+
+        if (error) {
+          setAuthMessage(error.message || 'Email verification succeeded but sign-in session could not be created.')
+        } else {
+          currentUrl.hash = ''
+          cleanupAuthUrl()
+          setAuthMessage('Email verified successfully. You are now logged in.')
+        }
+      } else if (hashErrorDescription) {
+        const message = decodeURIComponent(hashErrorDescription.replace(/\+/g, ' '))
+        setAuthMode('signup')
+        setAuthMessage(message || 'Email verification failed. Please try signup again.')
+        currentUrl.hash = ''
+        cleanupAuthUrl()
+      }
+
+      const queryErrorDescription = currentUrl.searchParams.get('error_description')
+      if (queryErrorDescription) {
+        const message = decodeURIComponent(queryErrorDescription.replace(/\+/g, ' '))
+        setAuthMode('signup')
+        setAuthMessage(message || 'Email verification failed. Please try signup again.')
+        cleanupAuthUrl()
+      }
+
       if (currentUrl.searchParams.has('code')) {
         const { error } = await supabase.auth.exchangeCodeForSession(window.location.href)
         if (error) {
           setAuthMessage(error.message || 'Email verification succeeded but sign-in session could not be created.')
         } else {
-          currentUrl.searchParams.delete('code')
-          currentUrl.searchParams.delete('type')
-          const query = currentUrl.searchParams.toString()
-          window.history.replaceState({}, document.title, `${currentUrl.pathname}${query ? `?${query}` : ''}`)
+          cleanupAuthUrl()
           setAuthMessage('Email verified successfully. You are now logged in.')
         }
       }
@@ -510,14 +650,33 @@ export default function App() {
       setSession(resolvedSession)
 
       if (resolvedSession) {
+        const { profile, error: profileError } = await loadProfile(resolvedSession)
+        if (profileError) {
+          setAuthMessage(profileError.message || 'Failed to restore profile settings.')
+        }
+
+        if (profile) {
+          setSelectedGenre(profile.selected_genre || ALL_GENRES)
+          setSelectedContentFilter(profile.selected_content_filter || 'all')
+          setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
+        }
+
         const nextRatings = await loadRatings(resolvedSession)
         await loadTrending()
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
 
-        if (!hasRatingSignals(nextRatings)) {
-          setActiveTab('personalize')
+        const onboardingCompleted = Boolean(profile?.onboarding_completed)
+        setActiveTab(onboardingCompleted ? 'home' : 'personalize')
+        if (!onboardingCompleted) {
+          await saveProfilePreferences(resolvedSession, { onboarding_completed: true })
         }
+
+        setProfileLoaded(true)
+      }
+
+      if (!resolvedSession) {
+        setProfileLoaded(true)
       }
     }
 
@@ -535,13 +694,27 @@ export default function App() {
       if (event === 'SIGNED_IN' && nextSession) {
         setAuthMessage('Logged in successfully.')
         setShowAuthModal(false)
+        const { profile, error: profileError } = await loadProfile(nextSession)
+        if (profileError) {
+          setAuthMessage(profileError.message || 'Failed to restore profile settings.')
+        }
+
+        if (profile) {
+          setSelectedGenre(profile.selected_genre || ALL_GENRES)
+          setSelectedContentFilter(profile.selected_content_filter || 'all')
+          setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
+        }
+
         const nextRatings = await loadRatings(nextSession)
         await loadTrending()
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
-        if (!hasRatingSignals(nextRatings)) {
-          setActiveTab('personalize')
+        const onboardingCompleted = Boolean(profile?.onboarding_completed)
+        setActiveTab(onboardingCompleted ? 'home' : 'personalize')
+        if (!onboardingCompleted) {
+          await saveProfilePreferences(nextSession, { onboarding_completed: true })
         }
+        setProfileLoaded(true)
         return
       }
 
@@ -561,6 +734,7 @@ export default function App() {
         setAuthMessage('Logged out.')
         setRatingMessage('')
         setMovieError('')
+        setProfileLoaded(false)
         await loadLiveCatalog()
         await loadTrending()
         return
@@ -606,30 +780,29 @@ export default function App() {
     }
 
     refreshRows()
-  }, [session, selectedGenre, selectedMediaType, searchQuery, preferredGenres, selectedMood])
+  }, [session, selectedGenre, selectedMediaType, selectedContentFilter, searchQuery, preferredGenres, selectedMood])
+
+  useEffect(() => {
+    if (!session || !profileLoaded || !supabase) {
+      return undefined
+    }
+
+    const persistSelections = async () => {
+      await saveProfilePreferences(session, {
+        selected_genre: selectedGenreValue,
+        selected_content_filter: selectedContentFilter,
+        selected_media_type: selectedMediaType,
+      })
+    }
+
+    persistSelections()
+    return undefined
+  }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType])
 
   const applyContentFilter = (filterKey) => {
     setSelectedContentFilter(filterKey)
-    setSelectedGenre(ALL_GENRES)
 
-    if (filterKey === 'all') {
-      setSelectedMediaType('all')
-      return
-    }
-
-    if (filterKey === 'movie' || filterKey === 'tv') {
-      setSelectedMediaType(filterKey)
-      return
-    }
-
-    setSelectedMediaType('all')
-    if (filterKey === 'documentary') {
-      setSelectedGenre('Documentary')
-      return
-    }
-    if (filterKey === 'music') {
-      setSelectedGenre('Music')
-    }
+    setSelectedMediaType(getContentFilterDetails(filterKey).mediaType)
   }
 
   useEffect(() => {
@@ -750,7 +923,7 @@ export default function App() {
               data: {
                 full_name: fullName,
               },
-              emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
+              emailRedirectTo: authRedirectUrl,
             },
           }),
           AUTH_TIMEOUT_MS,
@@ -766,6 +939,7 @@ export default function App() {
           setShowAuthModal(false)
           setAuthMessage('Account created. You are signed in.')
         } else {
+          setAuthMode('login')
           setAuthMessage('Check your inbox and confirm your email before logging in.')
         }
       } else {
@@ -950,13 +1124,6 @@ export default function App() {
         ? current.filter((item) => item !== genre)
         : [genre, ...current.filter((item) => item !== genre)].slice(0, 4)
 
-      // Clicking an active genre unselects it. Selecting a new one pins it for feed tuning.
-      if (exists && selectedGenre === genre) {
-        setSelectedGenre(next[0] || ALL_GENRES)
-      } else if (!exists) {
-        setSelectedGenre(genre)
-      }
-
       return next
     })
   }
@@ -1028,10 +1195,7 @@ export default function App() {
 
     setRatedMovies({})
     setPreferredGenres([])
-    setSelectedGenre(ALL_GENRES)
     setSelectedMood(MOODS[0])
-    setSelectedMediaType('all')
-    setSelectedContentFilter('all')
     setSearchQuery('')
     setSearchResetSignal((value) => value + 1)
     setSelectedDetail(null)
@@ -1094,7 +1258,7 @@ export default function App() {
 
   const personalizedRailMovies = filteredPersonalizedMovies
   const trendingPreviewMovies = filteredTrendingMovies
-  const highlyRatedRailMovies = filterMovies(highlyRatedMovies, searchQuery)
+  const highlyRatedRailMovies = filterMovies(highlyRatedMovies, searchQuery, selectedGenreValue, selectedContentFilter)
   const searchResultMovies = filteredLiveCatalog
   const normalizedSearchQuery = searchQuery.trim()
   const hasActiveSearch = normalizedSearchQuery.length > 0
@@ -1364,8 +1528,6 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setSelectedGenre(genre)
-                  setSelectedContentFilter('')
-                  setSelectedMediaType('all')
                 }}
                 className={selectedGenre === genre ? 'genre-chip active' : 'genre-chip'}
               >

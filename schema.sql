@@ -10,12 +10,24 @@ create table if not exists public.profiles (
   full_name text,
   avatar_url text,
   selected_genre text,
+  selected_content_filter text not null default 'all',
+  selected_media_type text not null default 'all',
+  onboarding_completed boolean not null default true,
   email_verified boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint email_format_check
     check (email ~* '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$')
 );
+
+alter table if exists public.profiles
+  add column if not exists selected_content_filter text not null default 'all';
+
+alter table if exists public.profiles
+  add column if not exists selected_media_type text not null default 'all';
+
+alter table if exists public.profiles
+  add column if not exists onboarding_completed boolean not null default true;
 
 -- Movies the user rates for personalization
 create table if not exists public.user_movie_ratings (
@@ -151,18 +163,36 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, full_name, avatar_url, email_verified)
+  insert into public.profiles (
+    id,
+    email,
+    full_name,
+    avatar_url,
+    selected_genre,
+    selected_content_filter,
+    selected_media_type,
+    onboarding_completed,
+    email_verified
+  )
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', ''),
     coalesce(new.raw_user_meta_data->>'avatar_url', ''),
+    null,
+    'all',
+    'all',
+    false,
     case when new.email_confirmed_at is not null then true else false end
   )
   on conflict (id) do update
   set email = excluded.email,
       full_name = excluded.full_name,
       avatar_url = excluded.avatar_url,
+      selected_genre = coalesce(public.profiles.selected_genre, excluded.selected_genre),
+      selected_content_filter = coalesce(public.profiles.selected_content_filter, excluded.selected_content_filter),
+      selected_media_type = coalesce(public.profiles.selected_media_type, excluded.selected_media_type),
+      onboarding_completed = coalesce(public.profiles.onboarding_completed, excluded.onboarding_completed),
       email_verified = excluded.email_verified,
       updated_at = now();
   return new;
