@@ -49,7 +49,7 @@ body {
 
 .stream-topbar {
   display: grid;
-  grid-template-columns: auto minmax(320px, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 14px;
   align-items: center;
   padding: 12px 20px;
@@ -108,6 +108,65 @@ body {
   gap: 10px;
   margin-left: 10px;
   white-space: nowrap;
+}
+
+.user-menu-wrap {
+  position: relative;
+  justify-self: end;
+}
+
+.user-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 161, 255, 0.35);
+  background: rgba(8, 18, 43, 0.9);
+  color: #dff0ff;
+  cursor: pointer;
+}
+
+.user-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.user-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 180px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(127, 161, 255, 0.3);
+  background: rgba(4, 14, 34, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  z-index: 140;
+}
+
+.user-menu-title {
+  margin: 0 0 8px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9fb7e8;
+}
+
+.user-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(10, 24, 54, 0.92);
+  color: #eaf2ff;
+  text-align: left;
+  font-weight: 700;
+}
+
+.user-menu-item + .user-menu-item {
+  margin-top: 6px;
 }
 
 .nav-tab {
@@ -934,7 +993,7 @@ body {
 
 @media (max-width: 1120px) {
   .stream-topbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
   }
 
@@ -943,6 +1002,7 @@ body {
   }
 
   .topbar-search {
+    grid-column: 1 / -1;
     max-width: none;
     margin-left: 0;
     justify-self: stretch;
@@ -980,16 +1040,22 @@ body {
   .stream-topbar {
     padding: 12px;
     border-radius: 14px;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
   }
 
   .brand-wrap {
-    flex-wrap: wrap;
     gap: 10px;
+    flex-wrap: nowrap;
   }
 
   .brand-logo {
     height: 44px;
     max-width: 160px;
+  }
+
+  .brand-copy {
+    display: none;
   }
 
   .brand-tagline {
@@ -999,8 +1065,10 @@ body {
   }
 
   .stream-nav {
-    width: 100%;
+    width: auto;
     gap: 8px;
+    margin-left: 0;
+    justify-self: center;
   }
 
   .nav-tab {
@@ -1010,6 +1078,7 @@ body {
 
   .topbar-search {
     width: 100%;
+    grid-column: 1 / -1;
   }
 
   .stream-search {

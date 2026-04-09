@@ -11,6 +11,7 @@ create table if not exists public.profiles (
   avatar_url text,
   selected_genre text,
   preferred_genres text[] not null default '{}'::text[],
+  preferred_mood text not null default 'Cinematic',
   selected_content_filter text not null default 'all',
   selected_media_type text not null default 'all',
   onboarding_completed boolean not null default true,
@@ -31,11 +32,18 @@ alter table if exists public.profiles
   add column if not exists preferred_genres text[] not null default '{}'::text[];
 
 alter table if exists public.profiles
+  add column if not exists preferred_mood text not null default 'Cinematic';
+
+alter table if exists public.profiles
   add column if not exists onboarding_completed boolean not null default true;
 
 update public.profiles
 set preferred_genres = coalesce(preferred_genres, '{}'::text[])
 where preferred_genres is null;
+
+update public.profiles
+set preferred_mood = coalesce(nullif(trim(preferred_mood), ''), 'Cinematic')
+where preferred_mood is null or trim(preferred_mood) = '';
 
 -- Movies the user rates for personalization
 create table if not exists public.user_movie_ratings (
@@ -178,6 +186,7 @@ begin
     avatar_url,
     selected_genre,
     preferred_genres,
+    preferred_mood,
     selected_content_filter,
     selected_media_type,
     onboarding_completed,
@@ -190,6 +199,7 @@ begin
     coalesce(new.raw_user_meta_data->>'avatar_url', ''),
     null,
     '{}'::text[],
+    'Cinematic',
     'all',
     'all',
     false,
@@ -201,6 +211,7 @@ begin
       avatar_url = excluded.avatar_url,
       selected_genre = coalesce(public.profiles.selected_genre, excluded.selected_genre),
       preferred_genres = coalesce(public.profiles.preferred_genres, excluded.preferred_genres),
+      preferred_mood = coalesce(public.profiles.preferred_mood, excluded.preferred_mood),
       selected_content_filter = coalesce(public.profiles.selected_content_filter, excluded.selected_content_filter),
       selected_media_type = coalesce(public.profiles.selected_media_type, excluded.selected_media_type),
       onboarding_completed = coalesce(public.profiles.onboarding_completed, excluded.onboarding_completed),

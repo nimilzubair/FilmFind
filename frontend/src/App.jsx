@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import AuthPanel from './components/AuthPanel'
 import SearchBar from './components/SearchBar'
@@ -262,6 +262,8 @@ export default function App() {
   const [selectedMediaType, setSelectedMediaType] = useState('all')
   const [selectedContentFilter, setSelectedContentFilter] = useState('all')
   const [mobileGenreSelection, setMobileGenreSelection] = useState(ALL_GENRES)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef(null)
 
   const authRedirectUrl = useMemo(() => {
     if (configuredAuthRedirect) {
@@ -514,7 +516,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('selected_genre, preferred_genres, selected_content_filter, selected_media_type, onboarding_completed, email_verified, full_name')
+      .select('selected_genre, preferred_genres, preferred_mood, selected_content_filter, selected_media_type, onboarding_completed, email_verified, full_name')
       .eq('id', currentSession.user.id)
       .maybeSingle()
 
@@ -544,6 +546,10 @@ export default function App() {
 
     if (Object.prototype.hasOwnProperty.call(nextValues, 'preferred_genres')) {
       payload.preferred_genres = nextValues.preferred_genres
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'preferred_mood')) {
+      payload.preferred_mood = nextValues.preferred_mood
     }
 
     if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_content_filter')) {
@@ -686,6 +692,7 @@ export default function App() {
           setSelectedContentFilter(profile.selected_content_filter || 'all')
           setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
           setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
+          setSelectedMood(profile.preferred_mood || MOODS[0])
         }
 
         const nextRatings = await loadRatings(resolvedSession)
@@ -731,6 +738,7 @@ export default function App() {
           setSelectedContentFilter(profile.selected_content_filter || 'all')
           setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
           setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
+          setSelectedMood(profile.preferred_mood || MOODS[0])
         }
 
         const nextRatings = await loadRatings(nextSession)
@@ -819,6 +827,7 @@ export default function App() {
       await saveProfilePreferences(session, {
         selected_genre: selectedGenreValue,
         preferred_genres: preferredGenres,
+        preferred_mood: selectedMood,
         selected_content_filter: selectedContentFilter,
         selected_media_type: selectedMediaType,
       })
@@ -826,7 +835,7 @@ export default function App() {
 
     persistSelections()
     return undefined
-  }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType, preferredGenres])
+  }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType, preferredGenres, selectedMood])
 
   const applyContentFilter = (filterKey) => {
     setSelectedContentFilter(filterKey)
@@ -857,6 +866,26 @@ export default function App() {
   useEffect(() => {
     setMobileGenreSelection(selectedGenre || ALL_GENRES)
   }, [selectedGenre])
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!userMenuOpen) {
+        return
+      }
+
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [userMenuOpen])
 
   useEffect(() => {
     // Keep URL in sync with view state.
@@ -1039,6 +1068,16 @@ export default function App() {
       return
     }
 
+    if (session) {
+      await saveProfilePreferences(session, {
+        selected_genre: selectedGenreValue,
+        preferred_genres: preferredGenres,
+        preferred_mood: selectedMood,
+        selected_content_filter: selectedContentFilter,
+        selected_media_type: selectedMediaType,
+      })
+    }
+
     setAuthLoading(true)
     setAuthMessage('Logging out...')
 
@@ -1073,6 +1112,7 @@ export default function App() {
   }
 
   const requestLogout = () => {
+    setUserMenuOpen(false)
     setShowLogoutConfirm(true)
   }
 
@@ -1179,6 +1219,7 @@ export default function App() {
     setAuthMode('login')
     setSearchQuery('')
     setSearchResetSignal((value) => value + 1)
+    setUserMenuOpen(false)
     setShowAuthModal(true)
   }
 
@@ -1187,7 +1228,12 @@ export default function App() {
     setAuthMode('signup')
     setSearchQuery('')
     setSearchResetSignal((value) => value + 1)
+    setUserMenuOpen(false)
     setShowAuthModal(true)
+  }
+
+  const toggleUserMenu = () => {
+    setUserMenuOpen((current) => !current)
   }
 
   const openTitleDetail = async (movie) => {
@@ -1225,6 +1271,20 @@ export default function App() {
 
   const openCollection = async (label, mode = 'genre') => {
     await loadCollectionByGenre(label, mode)
+  }
+
+  const applyPersonalizationToHome = async () => {
+    if (session) {
+      await saveProfilePreferences(session, {
+        selected_genre: selectedGenreValue,
+        preferred_genres: preferredGenres,
+        preferred_mood: selectedMood,
+        selected_content_filter: selectedContentFilter,
+        selected_media_type: selectedMediaType,
+      })
+    }
+
+    setActiveTab('home')
   }
 
   const resetPersonalization = async () => {
@@ -1332,7 +1392,10 @@ export default function App() {
             <div className="brand-copy">
               <p className="brand-tagline">Find Your Next Film</p>
             </div>
-            <nav className={session ? 'stream-nav' : 'stream-nav is-hidden'} aria-label="Primary navigation" aria-hidden={!session}>
+          </div>
+
+          {session ? (
+            <nav className="stream-nav" aria-label="Primary navigation">
               <button type="button" className={activeTab === 'home' ? 'nav-tab active' : 'nav-tab'} onClick={() => setActiveTab('home')}>
                 Home
               </button>
@@ -1344,6 +1407,43 @@ export default function App() {
                 Personalize
               </button>
             </nav>
+          ) : null}
+
+          <div className="user-menu-wrap" ref={userMenuRef}>
+            <button
+              type="button"
+              className="user-icon-button"
+              onClick={toggleUserMenu}
+              aria-label={session ? 'Open user menu' : 'Open login menu'}
+              aria-haspopup="menu"
+              aria-expanded={userMenuOpen}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="user-icon">
+                <path d="M12 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 12c-5.1 0-9 2.9-9 6.5V22h18v-1.5c0-3.6-3.9-6.5-9-6.5Z" fill="currentColor" />
+              </svg>
+            </button>
+
+            {userMenuOpen ? (
+              <div className="user-menu" role="menu">
+                {session ? (
+                  <>
+                    <p className="user-menu-title">{displayName}</p>
+                    <button type="button" className="user-menu-item" onClick={requestLogout} role="menuitem">
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="user-menu-item" onClick={openLogin} role="menuitem">
+                      Login
+                    </button>
+                    <button type="button" className="user-menu-item" onClick={openSignup} role="menuitem">
+                      Signup
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className="topbar-search">
@@ -1360,26 +1460,6 @@ export default function App() {
               resetSignal={searchResetSignal}
               closeSignal={searchCloseSignal}
             />
-          </div>
-
-          <div className="stream-actions">
-            {session ? (
-              <>
-                <span className="pill">{displayName}</span>
-                <button type="button" className="pill ghost" onClick={requestLogout} disabled={authLoading}>
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="pill ghost" onClick={openLogin}>
-                  Sign in
-                </button>
-                <button type="button" className="pill" onClick={openSignup}>
-                  Join now
-                </button>
-              </>
-            )}
           </div>
         </header>
 
@@ -1538,7 +1618,7 @@ export default function App() {
                 )}
 
                 <div className="detail-actions mt-4">
-                  <button type="button" className="pill" onClick={() => setActiveTab('home')}>Apply to Home</button>
+                  <button type="button" className="pill" onClick={applyPersonalizationToHome}>Apply to Home</button>
                   <button type="button" className="pill ghost" onClick={resetPersonalization}>Reset Personalization</button>
                 </div>
 
