@@ -245,8 +245,9 @@ export default function App() {
   const [genres, setGenres] = useState([ALL_GENRES])
   const [selectedGenre, setSelectedGenre] = useState(ALL_GENRES)
   const [selectedMood, setSelectedMood] = useState(MOODS[0])
+  const [genreSearchInput, setGenreSearchInput] = useState('')
+  const [genreSearchQuery, setGenreSearchQuery] = useState('')
   const [preferredGenres, setPreferredGenres] = useState([])
-  const [genrePreviewRows, setGenrePreviewRows] = useState({})
   const [trendingMovies, setTrendingMovies] = useState([])
   const [highlyRatedMovies, setHighlyRatedMovies] = useState([])
   const [liveCatalog, setLiveCatalog] = useState([])
@@ -260,6 +261,7 @@ export default function App() {
   const [searchCloseSignal, setSearchCloseSignal] = useState(0)
   const [selectedMediaType, setSelectedMediaType] = useState('all')
   const [selectedContentFilter, setSelectedContentFilter] = useState('all')
+  const [mobileGenreSelection, setMobileGenreSelection] = useState(ALL_GENRES)
 
   const authRedirectUrl = useMemo(() => {
     if (configuredAuthRedirect) {
@@ -316,7 +318,6 @@ export default function App() {
   const contentFilterDetails = getContentFilterDetails(selectedContentFilter)
   const apiMediaType = contentFilterDetails.mediaType
   const apiGenreHint = selectedGenreValue || contentFilterDetails.genreHint
-  const activeGenreForFeed = selectedGenreValue || contentFilterDetails.genreHint || preferredGenres[0] || null
 
   const filteredTrendingMovies = useMemo(
     () => filterMovies(trendingMovies, searchQuery, selectedGenreValue, selectedContentFilter),
@@ -337,6 +338,15 @@ export default function App() {
     () => genres.filter((genre) => genre !== ALL_GENRES && genre !== 'Documentary' && genre !== 'Music').sort((a, b) => a.localeCompare(b)),
     [genres],
   )
+
+  const personalizeGenres = useMemo(() => {
+    const query = genreSearchQuery.trim().toLowerCase()
+    const base = genres.filter((genre) => genre !== ALL_GENRES)
+    if (!query) {
+      return base
+    }
+    return base.filter((genre) => genre.toLowerCase().includes(query))
+  }, [genres, genreSearchQuery])
 
   const favoriteGenres = useMemo(() => buildFavoriteGenres(ratedMovies), [ratedMovies])
   const hasPersonalizedSystem = useMemo(
@@ -455,51 +465,6 @@ export default function App() {
       if (error?.message && !String(error.message).toLowerCase().includes('network error')) {
         setMovieError(error.message)
       }
-      return []
-    }
-  }
-
-  const loadGenrePreview = async (genre, mediaType = selectedMediaType) => {
-    const normalizedGenre = String(genre || '').trim()
-    if (!normalizedGenre) {
-      return []
-    }
-
-    setGenrePreviewRows((current) => ({
-      ...current,
-      [normalizedGenre]: {
-        items: current[normalizedGenre]?.items || [],
-        loading: true,
-        error: '',
-      },
-    }))
-
-    try {
-      const items = await getLatestCatalog({
-        media_type: mediaType || 'all',
-        genre: normalizedGenre,
-        limit: 12,
-      })
-
-      setGenrePreviewRows((current) => ({
-        ...current,
-        [normalizedGenre]: {
-          items,
-          loading: false,
-          error: '',
-        },
-      }))
-
-      return items
-    } catch (error) {
-      setGenrePreviewRows((current) => ({
-        ...current,
-        [normalizedGenre]: {
-          items: [],
-          loading: false,
-          error: error?.message || 'Failed to load genre preview.',
-        },
-      }))
       return []
     }
   }
@@ -861,37 +826,25 @@ export default function App() {
 
     persistSelections()
     return undefined
-  }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType])
-
-  useEffect(() => {
-    if (!session || activeTab !== 'personalize' || !profileLoaded) {
-      return undefined
-    }
-
-    const genresToRender = preferredGenres.map((genre) => String(genre || '').trim()).filter(Boolean)
-    const nextKeys = new Set(genresToRender)
-
-    setGenrePreviewRows((current) => {
-      const next = {}
-      Object.entries(current).forEach(([genre, value]) => {
-        if (nextKeys.has(genre)) {
-          next[genre] = value
-        }
-      })
-      return next
-    })
-
-    genresToRender.forEach((genre) => {
-      void loadGenrePreview(genre, selectedMediaType)
-    })
-
-    return undefined
-  }, [session, activeTab, profileLoaded, selectedMediaType, preferredGenres])
+  }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType, preferredGenres])
 
   const applyContentFilter = (filterKey) => {
     setSelectedContentFilter(filterKey)
 
     setSelectedMediaType(getContentFilterDetails(filterKey).mediaType)
+  }
+
+  const applyGenreSearch = () => {
+    setGenreSearchQuery(genreSearchInput.trim())
+  }
+
+  const clearGenreSearch = () => {
+    setGenreSearchInput('')
+    setGenreSearchQuery('')
+  }
+
+  const applyMobileGenreSelection = () => {
+    setSelectedGenre(mobileGenreSelection || ALL_GENRES)
   }
 
   useEffect(() => {
@@ -900,6 +853,10 @@ export default function App() {
       setActiveTab('home')
     }
   }, [session, activeTab])
+
+  useEffect(() => {
+    setMobileGenreSelection(selectedGenre || ALL_GENRES)
+  }, [selectedGenre])
 
   useEffect(() => {
     // Keep URL in sync with view state.
@@ -1537,10 +1494,29 @@ export default function App() {
                   ))}
                 </div>
 
+                <div className="genre-search-bar mt-4">
+                  <input
+                    type="text"
+                    value={genreSearchInput}
+                    onChange={(event) => setGenreSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        applyGenreSearch()
+                      }
+                    }}
+                    className="auth-input"
+                    placeholder="Search genres"
+                    aria-label="Search genres"
+                  />
+                  <button type="button" className="pill" onClick={applyGenreSearch}>Search</button>
+                  {(genreSearchInput || genreSearchQuery) && (
+                    <button type="button" className="pill ghost" onClick={clearGenreSearch}>Clear</button>
+                  )}
+                </div>
+
                 <div className="genre-row mt-4">
-                  {genres
-                    .filter((genre) => genre !== ALL_GENRES)
-                    .map((genre) => (
+                  {personalizeGenres.map((genre) => (
                       <button
                         key={genre}
                         type="button"
@@ -1552,46 +1528,40 @@ export default function App() {
                     ))}
                 </div>
 
+                {preferredGenres.length > 0 ? (
+                  <p className="empty-copy mt-3">
+                    Personalizing your feed using {preferredGenres.length} genre{preferredGenres.length > 1 ? 's' : ''}:{' '}
+                    {preferredGenres.join(', ')}.
+                  </p>
+                ) : (
+                  <p className="empty-copy mt-3">Select genres to start personalizing your feed in real time.</p>
+                )}
+
                 <div className="detail-actions mt-4">
                   <button type="button" className="pill" onClick={() => setActiveTab('home')}>Apply to Home</button>
                   <button type="button" className="pill ghost" onClick={resetPersonalization}>Reset Personalization</button>
                 </div>
 
-                <div className="mt-5 space-y-5">
-                  {preferredGenres.length > 0 ? (
-                    preferredGenres.map((genre) => {
-                      const previewState = genrePreviewRows[genre] || { items: [], loading: true, error: '' }
-
-                      return (
-                        <div key={genre} className="genre-preview-block">
-                          <div className="row-head">
-                            <h2>{genre}</h2>
-                            <span>{previewState.loading ? 'Loading...' : `${previewState.items.length} titles`}</span>
-                          </div>
-
-                          {previewState.error ? <p className="error-copy">{previewState.error}</p> : null}
-
-                          {previewState.loading ? (
-                            <p className="empty-copy">Loading {genre} titles...</p>
-                          ) : previewState.items.length > 0 ? (
-                            <div className="poster-scroller compact">
-                              {previewState.items.map((movie) => (
-                                <PosterTile
-                                  key={`genre-preview-${genre}-${movie.movie_id}`}
-                                  movie={movie}
-                                  tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
-                                  onOpen={openTitleDetail}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="empty-copy">No titles found for {genre} yet.</p>
-                          )}
-                        </div>
-                      )
-                    })
+                <div className="mt-5">
+                  <div className="row-head">
+                    <h2>Blended picks for you</h2>
+                    <span>{loadingMovies ? 'Personalizing...' : `${personalizedRailMovies.length} titles`}</span>
+                  </div>
+                  {loadingMovies ? (
+                    <p className="empty-copy">Personalizing your recommendations...</p>
+                  ) : personalizedRailMovies.length > 0 ? (
+                    <div className="poster-scroller compact">
+                      {personalizedRailMovies.map((movie) => (
+                        <PosterTile
+                          key={`personalize-preview-${movie.movie_id}`}
+                          movie={movie}
+                          tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
+                          onOpen={openTitleDetail}
+                        />
+                      ))}
+                    </div>
                   ) : (
-                    <p className="empty-copy">Select one or more genres above to preview live titles here.</p>
+                    <p className="empty-copy">Pick genres and rate titles you have seen. We will blend recommendations here instantly.</p>
                   )}
                 </div>
               </>
@@ -1649,7 +1619,7 @@ export default function App() {
           </div>
 
           <p className="filter-label mt-3">Filter by genre</p>
-          <div className="genre-row mt-2">
+          <div className="genre-row mt-2 desktop-genre-filter">
             {sortedGenres.map((genre) => (
               <button
                 key={genre}
@@ -1662,6 +1632,18 @@ export default function App() {
                 {genre}
               </button>
             ))}
+          </div>
+
+          <div className="mobile-genre-filter mt-2">
+            <select value={mobileGenreSelection} onChange={(event) => setMobileGenreSelection(event.target.value)}>
+              <option value={ALL_GENRES}>{ALL_GENRES}</option>
+              {sortedGenres.map((genre) => (
+                <option key={`mobile-${genre}`} value={genre}>
+                  {genre}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="media-chip" onClick={applyMobileGenreSelection}>Apply</button>
           </div>
         </section>
 
