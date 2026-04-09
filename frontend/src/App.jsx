@@ -1064,51 +1064,41 @@ export default function App() {
   }
 
   const handleLogout = async () => {
-    if (!supabase) {
+    if (!supabase || authLoading) {
       return
     }
 
-    if (session) {
-      await saveProfilePreferences(session, {
-        selected_genre: selectedGenreValue,
-        preferred_genres: preferredGenres,
-        preferred_mood: selectedMood,
-        selected_content_filter: selectedContentFilter,
-        selected_media_type: selectedMediaType,
-      })
-    }
-
+    setUserMenuOpen(false)
+    setShowLogoutConfirm(false)
     setAuthLoading(true)
     setAuthMessage('Logging out...')
 
-    setSession(null)
-    setActiveTab('home')
-    setSelectedDetail(null)
-    setRatedMovies({})
-    setPreferredGenres([])
-    setTrendingMovies([])
-    setPersonalizedMovies([])
-    setSearchQuery('')
-    setSelectedGenre(ALL_GENRES)
-    setSelectedMediaType('all')
-    setSelectedContentFilter('all')
-    setSelectedMood(MOODS[0])
-    setAuthMessage('Logged out.')
-    setRatingMessage('')
-    setMovieError('')
+    if (session) {
+      try {
+        await saveProfilePreferences(session, {
+          selected_genre: selectedGenreValue,
+          preferred_genres: preferredGenres,
+          preferred_mood: selectedMood,
+          selected_content_filter: selectedContentFilter,
+          selected_media_type: selectedMediaType,
+        })
+      } catch (error) {
+        if (!isSupabaseLockRaceError(error)) {
+          setMovieError(error.message || 'Failed to save profile before logout.')
+        }
+      }
+    }
 
     try {
       await supabase.auth.signOut({ scope: 'global' })
     } catch (error) {
       if (!isSupabaseLockRaceError(error)) {
-        setMovieError(error.message || 'Failed to sign out.')
+        setAuthMessage(error.message || 'Failed to sign out.')
       }
     } finally {
       // Do not leave auth actions locked if sign out or refresh calls fail.
       setAuthLoading(false)
     }
-
-    await Promise.allSettled([loadTrending(), loadLiveCatalog()])
   }
 
   const requestLogout = () => {
@@ -1409,6 +1399,22 @@ export default function App() {
             </nav>
           ) : null}
 
+          <div className="topbar-search">
+            <SearchBar
+              onSearch={(query) => {
+                setSearchQuery(query.trim())
+              }}
+              onCommitSearch={(query) => {
+                if (activeTab === 'detail' && query.trim()) {
+                  setActiveTab('home')
+                }
+              }}
+              loading={loadingMovies}
+              resetSignal={searchResetSignal}
+              closeSignal={searchCloseSignal}
+            />
+          </div>
+
           <div className="user-menu-wrap" ref={userMenuRef}>
             <button
               type="button"
@@ -1428,7 +1434,7 @@ export default function App() {
                 {session ? (
                   <>
                     <p className="user-menu-title">{displayName}</p>
-                    <button type="button" className="user-menu-item" onClick={requestLogout} role="menuitem">
+                    <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
                       Logout
                     </button>
                   </>
@@ -1444,22 +1450,6 @@ export default function App() {
                 )}
               </div>
             ) : null}
-          </div>
-
-          <div className="topbar-search">
-            <SearchBar
-              onSearch={(query) => {
-                setSearchQuery(query.trim())
-              }}
-              onCommitSearch={(query) => {
-                if (activeTab === 'detail' && query.trim()) {
-                  setActiveTab('home')
-                }
-              }}
-              loading={loadingMovies}
-              resetSignal={searchResetSignal}
-              closeSignal={searchCloseSignal}
-            />
           </div>
         </header>
 

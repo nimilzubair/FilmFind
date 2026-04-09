@@ -49,7 +49,7 @@ body {
 
 .stream-topbar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(280px, 1fr) auto;
   gap: 14px;
   align-items: center;
   padding: 12px 20px;
@@ -193,7 +193,7 @@ body {
   width: 100%;
   max-width: none;
   min-width: 0;
-  justify-self: center;
+  justify-self: stretch;
   margin-left: 0;
   position: relative;
   z-index: 120;
