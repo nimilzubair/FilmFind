@@ -666,9 +666,9 @@ export default function App() {
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
 
-        const onboardingCompleted = Boolean(profile?.onboarding_completed)
-        setActiveTab(onboardingCompleted ? 'home' : 'personalize')
-        if (!onboardingCompleted) {
+        const needsOnboarding = profile?.onboarding_completed === false
+        setActiveTab(needsOnboarding ? 'personalize' : 'home')
+        if (needsOnboarding) {
           await saveProfilePreferences(resolvedSession, { onboarding_completed: true })
         }
 
@@ -709,9 +709,9 @@ export default function App() {
         await loadTrending()
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
-        const onboardingCompleted = Boolean(profile?.onboarding_completed)
-        setActiveTab(onboardingCompleted ? 'home' : 'personalize')
-        if (!onboardingCompleted) {
+        const needsOnboarding = profile?.onboarding_completed === false
+        setActiveTab(needsOnboarding ? 'personalize' : 'home')
+        if (needsOnboarding) {
           await saveProfilePreferences(nextSession, { onboarding_completed: true })
         }
         setProfileLoaded(true)
