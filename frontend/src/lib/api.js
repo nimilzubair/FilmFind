@@ -41,6 +41,17 @@ export async function getLatestCatalog({ media_type = 'all', genre = null, query
   return response.data
 }
 
+export async function getHighlyRatedCatalog({ media_type = 'all', genre = null, limit = 24 } = {}) {
+  const response = await api.get('/catalog/highly-rated', {
+    params: {
+      media_type,
+      genre: genre || undefined,
+      limit,
+    },
+  })
+  return response.data
+}
+
 export async function getTrendingMovies(genre = null, limit = 12) {
   const response = await api.get('/trending', {
     params: { genre: genre || undefined, limit },
@@ -55,11 +66,18 @@ export async function getMovieDetail(movieId, mediaType = null) {
   return response.data
 }
 
-export async function getPersonalizedMovies({ genre = null, liked_movies = [], disliked_movies = [], top_n = 12 }) {
+export async function getPersonalizedMovies({
+  genre = null,
+  rated_items = [],
+  preferred_genres = [],
+  mood = null,
+  top_n = 12,
+}) {
   const response = await api.post('/personalize', {
     genre,
-    liked_movies,
-    disliked_movies,
+    rated_items,
+    preferred_genres,
+    mood,
     top_n,
   })
   return response.data

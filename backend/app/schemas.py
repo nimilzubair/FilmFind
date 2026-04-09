@@ -9,11 +9,24 @@ class RecommendRequest(BaseModel):
     top_n: int = Field(default=10, ge=1, le=25)
 
 
+class RatedItem(BaseModel):
+    movie_id: int
+    rating: float = Field(ge=0, le=5)
+    title: str | None = None
+
+
 class PersonalizeRequest(BaseModel):
     genre: str | None = Field(default=None, description="Selected genre to personalize around")
-    liked_movies: list[str] = Field(default_factory=list, description="Titles the user liked")
-    disliked_movies: list[str] = Field(default_factory=list, description="Titles the user disliked")
+    rated_items: list[RatedItem] = Field(default_factory=list, description="User movie ratings with TMDB movie ids")
+    preferred_genres: list[str] = Field(default_factory=list, description="Explicitly selected preferred genres")
+    mood: str | None = Field(default=None, description="Current mood selection")
     top_n: int = Field(default=12, ge=1, le=25)
+
+
+class PersonCredit(BaseModel):
+    name: str
+    role: str | None = None
+    profile_url: str | None = None
 
 
 class SearchResult(BaseModel):
@@ -38,9 +51,12 @@ class MovieDetail(MovieCard):
     semantic_text: str | None = None
     overview: str | None = None
     actors: list[str] = Field(default_factory=list)
+    cast_members: list[PersonCredit] = Field(default_factory=list)
+    directors: list[PersonCredit] = Field(default_factory=list)
     duration_minutes: int | None = None
     media_type: str | None = None
     release_date: str | None = None
+    trailer_url: str | None = None
 
 
 class MovieCatalogResponse(BaseModel):

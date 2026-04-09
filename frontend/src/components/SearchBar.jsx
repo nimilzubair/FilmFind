@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { searchMovies } from '../lib/api'
 
-export default function SearchBar({ onSearch, loading, resetSignal = 0 }) {
+export default function SearchBar({ onSearch, onCommitSearch, loading, resetSignal = 0, closeSignal = 0 }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const inputRef = useRef(null)
+  const containerRef = useRef(null)
   const lastEmittedQueryRef = useRef('')
 
   // Debounced search for suggestions - real-time search
@@ -54,6 +55,32 @@ export default function SearchBar({ onSearch, loading, resetSignal = 0 }) {
     lastEmittedQueryRef.current = ''
   }, [resetSignal])
 
+  useEffect(() => {
+    // Hide only the dropdown when requested externally; keep query untouched.
+    setShowSuggestions(false)
+    setSelectedIndex(-1)
+  }, [closeSignal])
+
+  useEffect(() => {
+    const handleDocumentPointerDown = (event) => {
+      if (!containerRef.current) {
+        return
+      }
+
+      if (containerRef.current.contains(event.target)) {
+        return
+      }
+
+      setShowSuggestions(false)
+      setSelectedIndex(-1)
+    }
+
+    document.addEventListener('mousedown', handleDocumentPointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentPointerDown)
+    }
+  }, [])
+
   const handleSelect = (title) => {
     setQuery(title)
     setSuggestions([])
@@ -61,6 +88,9 @@ export default function SearchBar({ onSearch, loading, resetSignal = 0 }) {
     setSelectedIndex(-1)
     lastEmittedQueryRef.current = title.trim()
     onSearch(title)
+    if (onCommitSearch) {
+      onCommitSearch(title)
+    }
   }
 
   const handleKeyDown = (e) => {
@@ -111,7 +141,7 @@ export default function SearchBar({ onSearch, loading, resetSignal = 0 }) {
   }
 
   return (
-    <div className="relative w-full max-w-none">
+    <div ref={containerRef} className="relative w-full max-w-none">
       <form onSubmit={handleSubmit}>
         <motion.div
           className="relative"
@@ -147,6 +177,11 @@ export default function SearchBar({ onSearch, loading, resetSignal = 0 }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={() => {
+                  if (query.trim() && suggestions.length > 0) {
+                    setShowSuggestions(true)
+                  }
+                }}
                 className="flex-1 bg-transparent text-white placeholder-gray-500 focus:outline-none text-sm"
                 autoComplete="off"
               />

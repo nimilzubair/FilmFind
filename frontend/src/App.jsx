@@ -2,11 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import AuthPanel from './components/AuthPanel'
 import SearchBar from './components/SearchBar'
-import { getCatalogGenres, getGenres, getLatestCatalog, getMovieDetail, getPersonalizedMovies, getTrendingMovies } from './lib/api'
+import { getCatalogGenres, getGenres, getHighlyRatedCatalog, getLatestCatalog, getMovieDetail, getPersonalizedMovies, getTrendingMovies } from './lib/api'
 import { supabase } from './lib/supabase'
 
 const ALL_GENRES = 'All genres'
 const MOODS = ['Cinematic', 'Comfort', 'Thriller', 'Mind-bending']
+const CONTENT_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'movie', label: 'Movies' },
+  { key: 'tv', label: 'Series' },
+  { key: 'documentary', label: 'Documentary' },
+  { key: 'music', label: 'Song' },
+]
 const AUTH_TIMEOUT_MS = 30000
 
 function isSupabaseLockRaceError(error) {
@@ -107,28 +114,11 @@ function PosterTile({ movie, rank = null, tag = null, onOpen = null }) {
   )
 }
 
-function ThumbUpIcon({ className = 'h-4 w-4' }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M14 10V5.5c0-1.2-.8-2.3-1.9-2.7L11 2l-4 8v10h10.2c1.1 0 2.1-.8 2.3-1.9l1.2-6.4A2 2 0 0 0 18.8 10H14z" />
-      <path d="M7 10H4.5A1.5 1.5 0 0 0 3 11.5v7A1.5 1.5 0 0 0 4.5 20H7" />
-    </svg>
-  )
-}
-
-function ThumbDownIcon({ className = 'h-4 w-4' }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M10 14v4.5c0 1.2.8 2.3 1.9 2.7L13 22l4-8V4H6.8c-1.1 0-2.1.8-2.3 1.9L3.3 12.3A2 2 0 0 0 5.2 14H10z" />
-      <path d="M17 14h2.5a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 19.5 4H17" />
-    </svg>
-  )
-}
 function buildTasteRadarData(ratedMovies) {
   const counts = new Map()
 
   Object.values(ratedMovies).forEach((entry) => {
-    if (!(entry.is_liked || entry.feedback_type === 'like')) {
+    if (Number(entry.rating || 0) < 4) {
       return
     }
 
@@ -156,7 +146,7 @@ function buildFavoriteGenres(ratedMovies) {
   const counts = new Map()
 
   Object.values(ratedMovies).forEach((entry) => {
-    if (!(entry.is_liked || entry.feedback_type === 'like')) {
+    if (Number(entry.rating || 0) < 4) {
       return
     }
 
@@ -171,13 +161,22 @@ function buildFavoriteGenres(ratedMovies) {
     .slice(0, 4)
 }
 
+function hasRatingSignals(ratedMovies) {
+  return Object.values(ratedMovies).some((entry) => Number(entry?.rating || 0) > 0)
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home')
+  const [selectedCollection, setSelectedCollection] = useState(null)
+  const [collectionMovies, setCollectionMovies] = useState([])
+  const [collectionLoading, setCollectionLoading] = useState(false)
+  const [collectionError, setCollectionError] = useState('')
   const [selectedDetail, setSelectedDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [session, setSession] = useState(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [authMode, setAuthMode] = useState('login')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -190,6 +189,7 @@ export default function App() {
   const [selectedMood, setSelectedMood] = useState(MOODS[0])
   const [preferredGenres, setPreferredGenres] = useState([])
   const [trendingMovies, setTrendingMovies] = useState([])
+  const [highlyRatedMovies, setHighlyRatedMovies] = useState([])
   const [liveCatalog, setLiveCatalog] = useState([])
   const [personalizedMovies, setPersonalizedMovies] = useState([])
   const [loadingMovies, setLoadingMovies] = useState(true)
@@ -198,7 +198,52 @@ export default function App() {
   const [ratedMovies, setRatedMovies] = useState({})
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResetSignal, setSearchResetSignal] = useState(0)
+  const [searchCloseSignal, setSearchCloseSignal] = useState(0)
   const [selectedMediaType, setSelectedMediaType] = useState('all')
+  const [selectedContentFilter, setSelectedContentFilter] = useState('all')
+
+  const setHashRoute = (hash) => {
+    const normalized = hash.startsWith('#') ? hash : `#${hash}`
+    const nextUrl = `${window.location.pathname}${window.location.search}${normalized}`
+    window.history.replaceState({}, '', nextUrl)
+  }
+
+  const toCollectionSlug = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+
+  const loadCollectionByGenre = async (label, mode = 'genre') => {
+    const genre = String(label || '').trim()
+    if (!genre) {
+      return
+    }
+
+    setCollectionLoading(true)
+    setCollectionError('')
+    setActiveTab('collection')
+    setSelectedCollection({ label: genre, slug: toCollectionSlug(genre), mode })
+
+    try {
+      const items =
+        mode === 'highly-rated'
+          ? await getHighlyRatedCatalog({ media_type: 'all', genre: null, limit: 120 })
+          : await getLatestCatalog({
+              media_type: 'all',
+              genre,
+              limit: 96,
+            })
+      setCollectionMovies(items)
+      setHashRoute(`#collection/${toCollectionSlug(genre)}?genre=${encodeURIComponent(genre)}&type=${mode}`)
+    } catch (error) {
+      setCollectionMovies([])
+      setCollectionError(error?.message || 'Failed to load collection.')
+    } finally {
+      setCollectionLoading(false)
+    }
+  }
 
   const selectedGenreValue = selectedGenre === ALL_GENRES ? null : selectedGenre
   const activeGenreForFeed = selectedGenreValue || preferredGenres[0] || null
@@ -219,11 +264,15 @@ export default function App() {
   )
 
   const sortedGenres = useMemo(
-    () => genres.filter((genre) => genre !== ALL_GENRES).sort((a, b) => a.localeCompare(b)),
+    () => genres.filter((genre) => genre !== ALL_GENRES && genre !== 'Documentary' && genre !== 'Music').sort((a, b) => a.localeCompare(b)),
     [genres],
   )
 
   const favoriteGenres = useMemo(() => buildFavoriteGenres(ratedMovies), [ratedMovies])
+  const hasPersonalizedSystem = useMemo(
+    () => hasRatingSignals(ratedMovies) || preferredGenres.length > 0,
+    [ratedMovies, preferredGenres],
+  )
 
   const loadGenres = async () => {
     try {
@@ -242,11 +291,14 @@ export default function App() {
 
   const loadLiveCatalog = async () => {
     try {
+      const normalizedQuery = searchQuery.trim()
+      const isSearching = normalizedQuery.length > 0
       const items = await getLatestCatalog({
-        media_type: selectedMediaType,
-        genre: activeGenreForFeed,
-        query: searchQuery || null,
-        limit: 24,
+        // During search, query across all media and do not constrain by preference genre.
+        media_type: isSearching ? 'all' : selectedMediaType,
+        genre: isSearching ? null : activeGenreForFeed,
+        query: isSearching ? normalizedQuery : null,
+        limit: isSearching ? 64 : 84,
       })
       setLiveCatalog(items)
       return items
@@ -261,11 +313,35 @@ export default function App() {
 
   const loadTrending = async () => {
     try {
-      const data = await getTrendingMovies(activeGenreForFeed, 12)
+      const data = await getTrendingMovies(activeGenreForFeed, 24)
       setTrendingMovies(data)
       return data
     } catch (error) {
       setTrendingMovies([])
+      if (error?.message && !String(error.message).toLowerCase().includes('network error')) {
+        setMovieError(error.message)
+      }
+      return []
+    }
+  }
+
+  const loadHighlyRated = async () => {
+    try {
+      const normalizedQuery = searchQuery.trim()
+      if (normalizedQuery) {
+        setHighlyRatedMovies([])
+        return []
+      }
+
+      const items = await getHighlyRatedCatalog({
+        media_type: selectedMediaType,
+        genre: activeGenreForFeed,
+        limit: 36,
+      })
+      setHighlyRatedMovies(items)
+      return items
+    } catch (error) {
+      setHighlyRatedMovies([])
       if (error?.message && !String(error.message).toLowerCase().includes('network error')) {
         setMovieError(error.message)
       }
@@ -279,19 +355,26 @@ export default function App() {
       return []
     }
 
-    const liked_movies = Object.values(ratingsSnapshot)
-      .filter((item) => item.is_liked || item.feedback_type === 'like')
-      .map((item) => item.title)
+    // Keep personalized row empty until user provides at least one signal.
+    if (!hasRatingSignals(ratingsSnapshot) && preferredGenres.length === 0) {
+      setPersonalizedMovies([])
+      return []
+    }
 
-    const disliked_movies = Object.values(ratingsSnapshot)
-      .filter((item) => item.is_disliked || item.feedback_type === 'dislike')
-      .map((item) => item.title)
+    const rated_items = Object.values(ratingsSnapshot)
+      .filter((item) => Number(item.rating || 0) > 0)
+      .map((item) => ({
+        movie_id: Number(item.movie_id),
+        rating: Number(item.rating || 0),
+        title: item.title,
+      }))
 
     try {
       const data = await getPersonalizedMovies({
         genre: activeGenreForFeed,
-        liked_movies,
-        disliked_movies,
+        rated_items,
+        preferred_genres: preferredGenres,
+        mood: selectedMood,
         top_n: 18,
       })
 
@@ -313,7 +396,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('user_movie_ratings')
-      .select('movie_id, movie_title, genres, rating, feedback_type, is_liked, is_disliked, selected_genre, source, interaction_context, notes, watched_at, updated_at')
+      .select('movie_id, movie_title, genres, rating, selected_genre, source, interaction_context, notes, watched_at, updated_at')
       .eq('user_id', currentSession.user.id)
       .order('updated_at', { ascending: false })
 
@@ -329,9 +412,6 @@ export default function App() {
         title: entry.movie_title,
         genres: entry.genres || [],
         rating: Number(entry.rating),
-        feedback_type: entry.feedback_type,
-        is_liked: Boolean(entry.is_liked),
-        is_disliked: Boolean(entry.is_disliked),
         selected_genre: entry.selected_genre,
         source: entry.source,
         interaction_context: entry.interaction_context || {},
@@ -379,7 +459,7 @@ export default function App() {
       setMovieError('')
 
       try {
-        await Promise.all([loadLiveCatalog(), loadTrending()])
+        await Promise.all([loadLiveCatalog(), loadTrending(), loadHighlyRated()])
       } catch (error) {
         setMovieError(error?.message || 'Failed to load FilmFind')
       } finally {
@@ -423,6 +503,10 @@ export default function App() {
         await loadTrending()
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
+
+        if (!hasRatingSignals(nextRatings)) {
+          setActiveTab('personalize')
+        }
       }
     }
 
@@ -444,6 +528,9 @@ export default function App() {
         await loadTrending()
         await loadLiveCatalog()
         await loadPersonalized(nextRatings)
+        if (!hasRatingSignals(nextRatings)) {
+          setActiveTab('personalize')
+        }
         return
       }
 
@@ -458,6 +545,7 @@ export default function App() {
         setSearchQuery('')
         setSelectedGenre(ALL_GENRES)
         setSelectedMediaType('all')
+        setSelectedContentFilter('all')
         setSelectedMood(MOODS[0])
         setAuthMessage('Logged out.')
         setRatingMessage('')
@@ -489,6 +577,9 @@ export default function App() {
 
         if (!hasSearchQuery) {
           await loadTrending()
+          await loadHighlyRated()
+        } else {
+          setHighlyRatedMovies([])
         }
 
         if (session && !hasSearchQuery) {
@@ -504,7 +595,31 @@ export default function App() {
     }
 
     refreshRows()
-  }, [session, selectedGenre, selectedMediaType, searchQuery, preferredGenres])
+  }, [session, selectedGenre, selectedMediaType, searchQuery, preferredGenres, selectedMood])
+
+  const applyContentFilter = (filterKey) => {
+    setSelectedContentFilter(filterKey)
+    setSelectedGenre(ALL_GENRES)
+
+    if (filterKey === 'all') {
+      setSelectedMediaType('all')
+      return
+    }
+
+    if (filterKey === 'movie' || filterKey === 'tv') {
+      setSelectedMediaType(filterKey)
+      return
+    }
+
+    setSelectedMediaType('all')
+    if (filterKey === 'documentary') {
+      setSelectedGenre('Documentary')
+      return
+    }
+    if (filterKey === 'music') {
+      setSelectedGenre('Music')
+    }
+  }
 
   useEffect(() => {
     // Personalization page is account-only. If the user session is gone, return to home.
@@ -512,6 +627,94 @@ export default function App() {
       setActiveTab('home')
     }
   }, [session, activeTab])
+
+  useEffect(() => {
+    // Keep URL in sync with view state.
+    if (activeTab === 'detail') {
+      if (!selectedDetail?.movie_id) {
+        return
+      }
+
+      const media = selectedDetail.media_type ? `?media=${selectedDetail.media_type}` : ''
+      setHashRoute(`#detail/${selectedDetail.movie_id}${media}`)
+      return
+    }
+
+    if (activeTab === 'personalize') {
+      setHashRoute('#personalize')
+      return
+    }
+
+    if (activeTab === 'collection' && selectedCollection?.slug && selectedCollection?.label) {
+      setHashRoute(
+        `#collection/${selectedCollection.slug}?genre=${encodeURIComponent(selectedCollection.label)}&type=${selectedCollection.mode || 'genre'}`,
+      )
+      return
+    }
+
+    setHashRoute('#home')
+  }, [activeTab, selectedDetail?.movie_id, selectedDetail?.media_type, selectedCollection?.slug, selectedCollection?.label])
+
+  useEffect(() => {
+    const applyHashRoute = async () => {
+      const rawHash = window.location.hash || '#home'
+
+      if (rawHash.startsWith('#detail/')) {
+        const [detailPath, queryString] = rawHash.slice(1).split('?')
+        const idPart = detailPath.split('/')[1]
+        const movieId = Number(idPart)
+
+        if (!Number.isFinite(movieId) || movieId <= 0) {
+          setActiveTab('home')
+          return
+        }
+
+        const params = new URLSearchParams(queryString || '')
+        const mediaType = params.get('media')
+
+        setActiveTab('detail')
+        setDetailError('')
+        setDetailLoading(true)
+
+        try {
+          const detail = await getMovieDetail(movieId, mediaType || null)
+          setSelectedDetail(detail)
+        } catch (error) {
+          setDetailError(error?.message || 'Failed to load title details.')
+        } finally {
+          setDetailLoading(false)
+        }
+
+        return
+      }
+
+      if (rawHash.startsWith('#collection/')) {
+        const [, queryString] = rawHash.slice(1).split('?')
+        const params = new URLSearchParams(queryString || '')
+        const genre = params.get('genre')
+        const type = params.get('type') || 'genre'
+
+        if (!genre) {
+          setActiveTab('home')
+          return
+        }
+
+        await loadCollectionByGenre(genre, type)
+        return
+      }
+
+      if (rawHash === '#personalize') {
+        setActiveTab(session ? 'personalize' : 'home')
+        return
+      }
+
+      setActiveTab('home')
+    }
+
+    applyHashRoute()
+    window.addEventListener('hashchange', applyHashRoute)
+    return () => window.removeEventListener('hashchange', applyHashRoute)
+  }, [session])
 
   // Search is now handled by SearchBar component
 
@@ -600,6 +803,7 @@ export default function App() {
     }
 
     setAuthLoading(true)
+    setAuthMessage('Logging out...')
 
     setSession(null)
     setActiveTab('home')
@@ -611,6 +815,7 @@ export default function App() {
     setSearchQuery('')
     setSelectedGenre(ALL_GENRES)
     setSelectedMediaType('all')
+    setSelectedContentFilter('all')
     setSelectedMood(MOODS[0])
     setAuthMessage('Logged out.')
     setRatingMessage('')
@@ -630,13 +835,43 @@ export default function App() {
     await Promise.allSettled([loadTrending(), loadLiveCatalog()])
   }
 
-  const persistMovieFeedback = async (movie, feedback) => {
+  const requestLogout = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  const confirmLogout = async () => {
+    setShowLogoutConfirm(false)
+    await handleLogout()
+  }
+
+  const persistMovieRating = async (movie, rating) => {
     if (!session || !supabase) {
       setAuthMessage('Please log in to save ratings and personalize FilmFind.')
       return
     }
 
-    const { rating, feedback_type, is_liked, is_disliked, successMessage } = feedback
+    const previousRatings = ratedMovies
+    const optimisticRatings = {
+      ...previousRatings,
+      [movie.movie_id]: {
+        movie_id: movie.movie_id,
+        title: movie.title,
+        genres: movie.genres,
+        rating,
+        selected_genre: selectedGenreValue,
+        source: 'manual',
+        interaction_context: {
+          selected_genre: selectedGenreValue,
+          source: 'manual',
+          feedback_type: 'rating',
+        },
+        watched_at: new Date().toISOString(),
+      },
+    }
+
+    // Optimistic update so reaction color changes immediately on click.
+    setRatedMovies(optimisticRatings)
+    setPreferredGenres(buildFavoriteGenres(optimisticRatings))
 
     const payload = {
       user_id: session.user.id,
@@ -644,106 +879,51 @@ export default function App() {
       movie_title: movie.title,
       genres: movie.genres,
       rating,
-      feedback_type,
-      is_liked,
-      is_disliked,
+      feedback_type: 'rating',
+      is_liked: false,
+      is_disliked: false,
       selected_genre: selectedGenreValue,
       source: 'manual',
       interaction_context: {
         selected_genre: selectedGenreValue,
         source: 'manual',
-        feedback_type,
+        feedback_type: 'rating',
       },
     }
 
-    const { error } = await supabase.from('user_movie_ratings').upsert(payload, {
-      onConflict: 'user_id,movie_id',
-    })
+    const { error: deleteError } = await supabase
+      .from('user_movie_ratings')
+      .delete()
+      .eq('user_id', session.user.id)
+      .eq('movie_id', movie.movie_id)
+
+    if (deleteError) {
+      setRatedMovies(previousRatings)
+      setPreferredGenres(buildFavoriteGenres(previousRatings))
+      setRatingMessage(deleteError.message)
+      return
+    }
+
+    const { error } = await supabase.from('user_movie_ratings').insert(payload)
 
     if (error) {
+      // Roll back optimistic UI state if persistence fails.
+      setRatedMovies(previousRatings)
+      setPreferredGenres(buildFavoriteGenres(previousRatings))
       setRatingMessage(error.message)
       return
     }
 
-    const nextRatings = {
-      ...ratedMovies,
+    setRatedMovies((current) => ({
+      ...current,
       [movie.movie_id]: {
-        movie_id: movie.movie_id,
-        title: movie.title,
-        genres: movie.genres,
-        rating,
-        feedback_type,
-        is_liked,
-        is_disliked,
-        selected_genre: selectedGenreValue,
+        ...optimisticRatings[movie.movie_id],
         source: payload.source,
         interaction_context: payload.interaction_context,
-        watched_at: new Date().toISOString(),
       },
-    }
-
-    setRatedMovies(nextRatings)
-    setRatingMessage(successMessage)
-    setPreferredGenres(buildFavoriteGenres(nextRatings))
-    await loadPersonalized(nextRatings)
-  }
-
-  const handleRate = async (movie, rating) => {
-    await persistMovieFeedback(movie, {
-      rating,
-      feedback_type: 'rating',
-      is_liked: false,
-      is_disliked: false,
-      successMessage: `${movie.title} rated ${rating}/5.`,
-    })
-  }
-
-  const handleLike = async (movie) => {
-    const current = ratedMovies[movie.movie_id]
-    const isAlreadyLiked = current?.feedback_type === 'like' || current?.is_liked
-
-    if (isAlreadyLiked) {
-      await persistMovieFeedback(movie, {
-        rating: 3,
-        feedback_type: 'rating',
-        is_liked: false,
-        is_disliked: false,
-        successMessage: `${movie.title} reaction cleared.`,
-      })
-      return
-    }
-
-    await persistMovieFeedback(movie, {
-      rating: 5,
-      feedback_type: 'like',
-      is_liked: true,
-      is_disliked: false,
-      successMessage: `${movie.title} marked as liked.`,
-    })
-  }
-
-  const handleDislike = async (movie) => {
-    const current = ratedMovies[movie.movie_id]
-    const isAlreadyDisliked = current?.feedback_type === 'dislike' || current?.is_disliked
-
-    if (isAlreadyDisliked) {
-      await persistMovieFeedback(movie, {
-        rating: 3,
-        feedback_type: 'rating',
-        is_liked: false,
-        is_disliked: false,
-        successMessage: `${movie.title} reaction cleared.`,
-      })
-      return
-    }
-
-    await persistMovieFeedback(movie, {
-      rating: 1,
-      feedback_type: 'dislike',
-      is_liked: false,
-      is_disliked: true,
-      successMessage: `${movie.title} marked as disliked.`,
-    })
+    }))
+    setRatingMessage(`${movie.title} rated ${rating}/5.`)
+    await loadPersonalized(optimisticRatings)
   }
 
   const togglePreferredGenre = (genre) => {
@@ -785,6 +965,9 @@ export default function App() {
       return
     }
 
+    const mediaHint = movie.media_type ? `?media=${movie.media_type}` : ''
+    setHashRoute(`#detail/${movie.movie_id}${mediaHint}`)
+    setSearchCloseSignal((value) => value + 1)
     setActiveTab('detail')
     setDetailError('')
     setDetailLoading(true)
@@ -797,6 +980,8 @@ export default function App() {
         ...movie,
         overview: movie.overview || 'No storyline available.',
         actors: movie.actors || [],
+        cast_members: [],
+        directors: [],
         duration_minutes: null,
         release_date: movie.release_date || null,
       })
@@ -806,6 +991,10 @@ export default function App() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  const openCollection = async (label, mode = 'genre') => {
+    await loadCollectionByGenre(label, mode)
   }
 
   const resetPersonalization = async () => {
@@ -825,6 +1014,7 @@ export default function App() {
     setSelectedGenre(ALL_GENRES)
     setSelectedMood(MOODS[0])
     setSelectedMediaType('all')
+    setSelectedContentFilter('all')
     setSearchQuery('')
     setSearchResetSignal((value) => value + 1)
     setSelectedDetail(null)
@@ -842,29 +1032,56 @@ export default function App() {
     const bucket = new Map()
 
     filteredLiveCatalog.forEach((movie) => {
-      const label = movie.genres?.[0] || 'Featured'
-      if (!bucket.has(label)) {
-        bucket.set(label, [])
-      }
+      const movieGenres = Array.isArray(movie.genres) && movie.genres.length > 0 ? movie.genres : ['Featured']
 
-      if (bucket.get(label).length < 10) {
-        bucket.get(label).push(movie)
-      }
+      // Add a title into up to 2 genre rows so each row has enough cards to feel complete.
+      movieGenres.slice(0, 2).forEach((label) => {
+        if (!bucket.has(label)) {
+          bucket.set(label, [])
+        }
+
+        const current = bucket.get(label)
+        if (current.some((item) => item.movie_id === movie.movie_id)) {
+          return
+        }
+
+        if (current.length < 12) {
+          current.push(movie)
+        }
+      })
     })
 
-    return Array.from(bucket.entries())
+    const primaryRails = Array.from(bucket.entries())
+      .filter(([, items]) => items.length >= 6)
+      .sort((a, b) => b[1].length - a[1].length)
       .slice(0, 3)
       .map(([label, items]) => ({
         label,
         items,
       }))
+
+    if (primaryRails.length >= 3) {
+      return primaryRails
+    }
+
+    const fallbackItems = filteredLiveCatalog.slice(0, 12)
+    while (primaryRails.length < 3 && fallbackItems.length > 0) {
+      primaryRails.push({
+        label: primaryRails.length === 0 ? 'Featured' : `Popular picks ${primaryRails.length}`,
+        items: fallbackItems,
+      })
+    }
+
+    return primaryRails
   }, [filteredLiveCatalog])
 
-  const personalizedRailMovies = filteredPersonalizedMovies.slice(0, 12)
-  const trendingPreviewMovies = filteredLiveCatalog.slice(0, 10)
+  const personalizedRailMovies = filteredPersonalizedMovies
+  const trendingPreviewMovies = filteredTrendingMovies
+  const highlyRatedRailMovies = filterMovies(highlyRatedMovies, searchQuery)
+  const searchResultMovies = filteredLiveCatalog
   const normalizedSearchQuery = searchQuery.trim()
   const hasActiveSearch = normalizedSearchQuery.length > 0
-  const displayName = session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')?.[0] || 'viewer'
+  const displayName = (session?.user?.user_metadata?.full_name || '').trim() || session?.user?.email?.split('@')?.[0] || 'viewer'
   const visibleMovieError = movieError && !movieError.toLowerCase().includes('network error') ? movieError : ''
   const visibleAuthMessage =
     session && /timed out|supabase settings|check your network/i.test(String(authMessage || '')) ? '' : authMessage
@@ -905,8 +1122,14 @@ export default function App() {
               onSearch={(query) => {
                 setSearchQuery(query.trim())
               }}
+              onCommitSearch={(query) => {
+                if (activeTab === 'detail' && query.trim()) {
+                  setActiveTab('home')
+                }
+              }}
               loading={loadingMovies}
               resetSignal={searchResetSignal}
+              closeSignal={searchCloseSignal}
             />
           </div>
 
@@ -914,7 +1137,7 @@ export default function App() {
             {session ? (
               <>
                 <span className="pill">{displayName}</span>
-                <button type="button" className="pill ghost" onClick={handleLogout} disabled={authLoading}>
+                <button type="button" className="pill ghost" onClick={requestLogout} disabled={authLoading}>
                   Logout
                 </button>
               </>
@@ -961,6 +1184,7 @@ export default function App() {
                     <p className="detail-sub">
                       {(selectedDetail.media_type || 'title').toUpperCase()} • {selectedDetail.release_date || 'Release date unavailable'}
                       {selectedDetail.duration_minutes ? ` • ${selectedDetail.duration_minutes}m` : ''}
+                      {Number(selectedDetail.score || 0) > 0 ? ` • TMDB ${Number(selectedDetail.score).toFixed(1)}/10` : ''}
                     </p>
 
                     <div className="genre-row mt-3">
@@ -977,49 +1201,39 @@ export default function App() {
                       </p>
                     ) : null}
 
+                    {(selectedDetail.directors || []).length > 0 ? (
+                      <p className="empty-copy mt-2">
+                        <strong>Directors:</strong> {selectedDetail.directors.map((person) => person.name).join(', ')}
+                      </p>
+                    ) : null}
+
+                    {(selectedDetail.cast_members || []).length > 0 ? (
+                      <div className="cast-grid mt-4">
+                        {selectedDetail.cast_members.slice(0, 8).map((member) => (
+                          <div key={`${member.name}-${member.role || 'cast'}`} className="cast-card">
+                            {member.profile_url ? <img src={member.profile_url} alt={member.name} className="cast-photo" /> : null}
+                            <p className="cast-name">{member.name}</p>
+                            {member.role ? <p className="cast-role">{member.role}</p> : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {detailError ? <p className="error-copy mt-2">{detailError}</p> : null}
 
                     {session ? (
                       <div className="detail-actions mt-4">
-                        {(() => {
-                          const currentFeedback = ratedMovies[selectedDetail.movie_id]
-                          return (
-                            <>
+                        <p className="empty-copy w-full">Already watched it? Rate it for better personalization.</p>
                         {[1, 2, 3, 4, 5].map((value) => (
                           <button
                             key={value}
                             type="button"
-                            onClick={() => handleRate(selectedDetail, value)}
-                            className={
-                              currentFeedback?.feedback_type === 'rating' && currentFeedback?.rating === value
-                                ? 'media-chip active'
-                                : 'media-chip'
-                            }
+                            className={ratedMovies[selectedDetail.movie_id]?.rating === value ? 'media-chip active' : 'media-chip'}
+                            onClick={() => persistMovieRating(selectedDetail, value)}
                           >
                             {value}
                           </button>
                         ))}
-                        <button
-                          type="button"
-                          className={currentFeedback?.feedback_type === 'like' || currentFeedback?.is_liked ? 'media-chip active' : 'media-chip'}
-                          onClick={() => handleLike(selectedDetail)}
-                        >
-                          Like
-                        </button>
-                        <button
-                          type="button"
-                          className={
-                            currentFeedback?.feedback_type === 'dislike' || currentFeedback?.is_disliked
-                              ? 'media-chip active'
-                              : 'media-chip'
-                          }
-                          onClick={() => handleDislike(selectedDetail)}
-                        >
-                          Dislike
-                        </button>
-                            </>
-                          )
-                        })()}
                       </div>
                     ) : (
                       <button type="button" className="pill mt-4" onClick={openLogin}>Sign in to rate</button>
@@ -1082,41 +1296,66 @@ export default function App() {
               </>
             )}
           </section>
+        ) : activeTab === 'collection' ? (
+          <section className="dashboard-shell mt-5">
+            <div className="row-head">
+              <h2>{selectedCollection?.label || 'Collection'}</h2>
+              <button type="button" className="row-link" onClick={() => setActiveTab('home')}>Back to Home</button>
+            </div>
+
+            {collectionLoading ? (
+              <p className="empty-copy">Loading {selectedCollection?.label || 'collection'}...</p>
+            ) : collectionError ? (
+              <p className="error-copy">{collectionError}</p>
+            ) : collectionMovies.length > 0 ? (
+              <div className="collection-grid">
+                {collectionMovies.map((movie) => (
+                  <PosterTile
+                    key={`collection-${selectedCollection?.slug || 'all'}-${movie.movie_id}`}
+                    movie={movie}
+                    tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
+                    onOpen={openTitleDetail}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="empty-copy">No titles found for this collection.</p>
+            )}
+          </section>
         ) : (
           <>
-        <section className="genre-row" id="browse">
-          <button
-            type="button"
-            onClick={() => setSelectedMediaType('all')}
-            className={selectedMediaType === 'all' ? 'media-chip active' : 'media-chip'}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedMediaType('movie')}
-            className={selectedMediaType === 'movie' ? 'media-chip active' : 'media-chip'}
-          >
-            Movies
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedMediaType('tv')}
-            className={selectedMediaType === 'tv' ? 'media-chip active' : 'media-chip'}
-          >
-            Series
-          </button>
+        <section id="browse" className="filter-stack">
+          <p className="filter-label">Filter by type</p>
+          <div className="genre-row mt-2">
+            {CONTENT_FILTERS.map((filterOption) => (
+              <button
+                key={filterOption.key}
+                type="button"
+                onClick={() => applyContentFilter(filterOption.key)}
+                className={selectedContentFilter === filterOption.key ? 'media-chip active' : 'media-chip'}
+              >
+                {filterOption.label}
+              </button>
+            ))}
+          </div>
 
-          {sortedGenres.map((genre) => (
-            <button
-              key={genre}
-              type="button"
-              onClick={() => setSelectedGenre(genre)}
-              className={selectedGenre === genre ? 'genre-chip active' : 'genre-chip'}
-            >
-              {genre}
-            </button>
-          ))}
+          <p className="filter-label mt-3">Filter by genre</p>
+          <div className="genre-row mt-2">
+            {sortedGenres.map((genre) => (
+              <button
+                key={genre}
+                type="button"
+                onClick={() => {
+                  setSelectedGenre(genre)
+                  setSelectedContentFilter('')
+                  setSelectedMediaType('all')
+                }}
+                className={selectedGenre === genre ? 'genre-chip active' : 'genre-chip'}
+              >
+                {genre}
+              </button>
+            ))}
+          </div>
         </section>
 
         {visibleMovieError && <p className="error-copy">{visibleMovieError}</p>}
@@ -1150,7 +1389,7 @@ export default function App() {
               <section className="row-block" key={rail.label}>
                 <div className="row-head">
                   <h2>{rail.label}</h2>
-                  <span>See more</span>
+                  <button type="button" className="row-link" onClick={() => openCollection(rail.label)}>See more</button>
                 </div>
                 <div className="poster-scroller compact">
                   {rail.items.map((movie) => (
@@ -1159,6 +1398,24 @@ export default function App() {
                 </div>
               </section>
             ))}
+
+            {!hasActiveSearch && (
+              <section className="row-block">
+                <div className="row-head">
+                  <h2>Highly Rated</h2>
+                  <button type="button" className="row-link" onClick={() => openCollection('Highly Rated', 'highly-rated')}>See more</button>
+                </div>
+                {highlyRatedRailMovies.length > 0 ? (
+                  <div className="poster-scroller compact">
+                    {highlyRatedRailMovies.map((movie) => (
+                      <PosterTile key={`highly-${movie.movie_id}`} movie={movie} tag={`${Number(movie.score || 0).toFixed(1)} TMDB`} onOpen={openTitleDetail} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-copy">Loading highly rated titles...</p>
+                )}
+              </section>
+            )}
 
             <section className="dashboard-shell mt-5">
               <div className="dashboard-grid">
@@ -1174,7 +1431,7 @@ export default function App() {
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <p className="text-xs uppercase tracking-[0.28em] text-cyan-200/70">Rate titles</p>
-                      <p className="mt-2 text-sm text-slate-200">Likes and dislikes shape the personalized rows.</p>
+                      <p className="mt-2 text-sm text-slate-200">Your 1-5 ratings train the personalized rows over time.</p>
                     </div>
                   </div>
                 </div>
@@ -1209,27 +1466,73 @@ export default function App() {
                   {loadingMovies ? (
                     <p className="empty-copy">{hasActiveSearch ? 'Searching titles...' : 'Loading recommendations...'}</p>
                   ) : (
-                    <div className="poster-scroller compact">
-                      {trendingPreviewMovies.map((movie) => (
-                        <PosterTile
-                          key={movie.movie_id}
-                          movie={movie}
-                          tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
-                          onOpen={openTitleDetail}
-                        />
-                      ))}
-                    </div>
+                    hasActiveSearch ? (
+                      searchResultMovies.length > 0 ? (
+                        <div className="poster-scroller compact">
+                          {searchResultMovies.map((movie) => (
+                            <PosterTile
+                              key={movie.movie_id}
+                              movie={movie}
+                              tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
+                              onOpen={openTitleDetail}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-copy">No results found. Try a shorter title or different keywords.</p>
+                      )
+                    ) : (
+                      <div className="poster-scroller compact">
+                        {trendingPreviewMovies.map((movie) => (
+                          <PosterTile
+                            key={movie.movie_id}
+                            movie={movie}
+                            tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
+                            onOpen={openTitleDetail}
+                          />
+                        ))}
+                      </div>
+                    )
                   )}
 
-                  <h2 className="panel-heading mt-6">Because you rated similar titles</h2>
-                  {loadingMovies ? (
-                    <p className="empty-copy">Loading personalized recommendations...</p>
-                  ) : (
-                    <div className="poster-scroller compact">
-                      {personalizedRailMovies.map((movie) => (
-                        <PosterTile key={`personalized-${movie.movie_id}`} movie={movie} tag="For you" onOpen={openTitleDetail} />
-                      ))}
-                    </div>
+                  {!hasActiveSearch && (
+                    <>
+                      <h2 className="panel-heading mt-6">Highly Rated</h2>
+                      {loadingMovies ? (
+                        <p className="empty-copy">Loading highly rated titles...</p>
+                      ) : highlyRatedRailMovies.length > 0 ? (
+                        <div className="poster-scroller compact">
+                          {highlyRatedRailMovies.map((movie) => (
+                            <PosterTile
+                              key={`logged-highly-${movie.movie_id}`}
+                              movie={movie}
+                              tag={`${Number(movie.score || 0).toFixed(1)} TMDB`}
+                              onOpen={openTitleDetail}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-copy">No highly rated titles found for this filter.</p>
+                      )}
+
+                      <h2 className="panel-heading mt-6">Based on your preferences</h2>
+                      {loadingMovies ? (
+                        <p className="empty-copy">Loading personalized recommendations...</p>
+                      ) : !hasPersonalizedSystem ? (
+                        <div className="detail-actions mt-2">
+                          <p className="empty-copy">Personalized content is empty until you set your preferences.</p>
+                          <button type="button" className="pill" onClick={() => setActiveTab('personalize')}>Personalize now</button>
+                        </div>
+                      ) : personalizedRailMovies.length > 0 ? (
+                        <div className="poster-scroller compact">
+                          {personalizedRailMovies.map((movie) => (
+                            <PosterTile key={`personalized-${movie.movie_id}`} movie={movie} tag="For you" onOpen={openTitleDetail} />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-copy">Rate a few titles to build your personalized feed.</p>
+                      )}
+                    </>
                   )}
                 </section>
               </div>
@@ -1262,6 +1565,23 @@ export default function App() {
                 onSubmit={handleAuth}
                 message={authMessage}
               />
+            </div>
+          </div>
+        )}
+
+        {showLogoutConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4">
+            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950/95 p-5">
+              <h3 className="text-lg font-semibold text-white">Confirm Logout</h3>
+              <p className="mt-2 text-sm text-slate-300">Are you sure you want to logout?</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" className="pill ghost" onClick={() => setShowLogoutConfirm(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="pill" onClick={confirmLogout}>
+                  Yes, Logout
+                </button>
+              </div>
             </div>
           </div>
         )}

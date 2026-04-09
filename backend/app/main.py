@@ -64,13 +64,39 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(8, ge=1, 
     if not live_catalog.enabled:
         raise HTTPException(status_code=503, detail="TMDB is not configured")
 
-    items = live_catalog.latest_titles(media_type="all", query=q, limit=limit, include_cast=False)
+    items = live_catalog.search_titles(media_type="all", query=q, limit=limit)
     return [
         {
             "movie_id": int(item["movie_id"]),
             "title": str(item["title"]),
             "genres": list(item.get("genres", [])),
         }
+        for item in items
+    ]
+
+
+@app.get("/search/movie", response_model=list[SearchResult])
+async def search_movie(query: str = Query(..., min_length=1), limit: int = Query(8, ge=1, le=30)):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    items = live_catalog.search_titles(media_type="movie", query=query, limit=limit)
+    return [
+        {"movie_id": int(item["movie_id"]), "title": str(item["title"]), "genres": list(item.get("genres", []))}
+        for item in items
+    ]
+
+
+@app.get("/search/tv", response_model=list[SearchResult])
+async def search_tv(query: str = Query(..., min_length=1), limit: int = Query(8, ge=1, le=30)):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    items = live_catalog.search_titles(media_type="tv", query=query, limit=limit)
+    return [
+        {"movie_id": int(item["movie_id"]), "title": str(item["title"]), "genres": list(item.get("genres", []))}
         for item in items
     ]
 
@@ -96,7 +122,7 @@ async def catalog_latest(
     media_type: str = Query(default="all", pattern="^(all|movie|tv)$"),
     genre: str | None = Query(default=None),
     query: str | None = Query(default=None),
-    limit: int = Query(default=24, ge=1, le=40),
+    limit: int = Query(default=24, ge=1, le=120),
 ):
     live_catalog: TmdbCatalogClient = app.state.live_catalog
     if not live_catalog.enabled:
@@ -105,13 +131,26 @@ async def catalog_latest(
     return live_catalog.latest_titles(media_type=media_type, genre=genre, query=query, limit=limit, include_cast=False)
 
 
+@app.get("/catalog/highly-rated", response_model=list[LiveCatalogItem])
+async def catalog_highly_rated(
+    media_type: str = Query(default="all", pattern="^(all|movie|tv)$"),
+    genre: str | None = Query(default=None),
+    limit: int = Query(default=24, ge=1, le=120),
+):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    return live_catalog.highly_rated_titles(media_type=media_type, genre=genre, limit=limit)
+
+
 @app.get("/trending", response_model=list[MovieCard])
 async def trending(genre: str | None = Query(default=None), limit: int = Query(12, ge=1, le=24)):
     live_catalog: TmdbCatalogClient = app.state.live_catalog
     if not live_catalog.enabled:
         raise HTTPException(status_code=503, detail="TMDB is not configured")
 
-    items = live_catalog.latest_titles(media_type="all", genre=genre, query=None, limit=limit, include_cast=False)
+    items = live_catalog.trending_titles(media_type="all", genre=genre, limit=limit)
     return [
         {
             "movie_id": int(item["movie_id"]),
@@ -122,6 +161,28 @@ async def trending(genre: str | None = Query(default=None), limit: int = Query(1
             "score": float(item.get("score") or 0.0),
             "signal_source": str(item.get("signal_source") or "tmdb_trending"),
             "why_this": str(item.get("why_this") or "Live trending feed from TMDB."),
+        }
+        for item in items
+    ]
+
+
+@app.get("/trending/movie/day", response_model=list[MovieCard])
+async def trending_movie_day(limit: int = Query(12, ge=1, le=30)):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    items = live_catalog.trending_titles(media_type="movie", genre=None, limit=limit)
+    return [
+        {
+            "movie_id": int(item["movie_id"]),
+            "title": str(item["title"]),
+            "genres": list(item.get("genres", [])),
+            "poster_url": item.get("poster_url"),
+            "backdrop_url": item.get("backdrop_url"),
+            "score": float(item.get("score") or 0.0),
+            "signal_source": str(item.get("signal_source") or "tmdb_trending"),
+            "why_this": str(item.get("why_this") or "Trending movies today."),
         }
         for item in items
     ]
@@ -183,49 +244,22 @@ async def movie_detail(movie_id: int, media_type: str | None = Query(default=Non
     return detail
 
 
-@app.post("/personalize", response_model=list[MovieCard])
-async def personalize(request: PersonalizeRequest):
+@app.get("/movies/{movie_id}/videos", response_model=dict[str, str | None])
+async def movie_videos(movie_id: int):
     live_catalog: TmdbCatalogClient = app.state.live_catalog
     if not live_catalog.enabled:
         raise HTTPException(status_code=503, detail="TMDB is not configured")
 
-    disliked = {title.strip().lower() for title in request.disliked_movies if title.strip()}
+    return {"trailer_url": live_catalog._extract_trailer_url("movie", int(movie_id))}
 
-    seeds = [title.strip() for title in request.liked_movies if title.strip()]
-    collected: list[dict[str, object]] = []
-    seen_ids: set[int] = set()
 
-    if seeds:
-        for seed in seeds[:5]:
-            for item in live_catalog.latest_titles(
-                media_type="all",
-                genre=request.genre,
-                query=seed,
-                limit=max(4, request.top_n // 2),
-                include_cast=False,
-            ):
-                item_id = int(item["movie_id"])
-                title_key = str(item["title"]).strip().lower()
-                if item_id in seen_ids or title_key in disliked:
-                    continue
-                seen_ids.add(item_id)
-                collected.append(item)
-                if len(collected) >= request.top_n:
-                    break
-            if len(collected) >= request.top_n:
-                break
+@app.get("/movies/{movie_id}/recommendations", response_model=list[MovieCard])
+async def movie_recommendations(movie_id: int, limit: int = Query(default=12, ge=1, le=30)):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
 
-    if len(collected) < request.top_n:
-        for item in live_catalog.latest_titles(media_type="all", genre=request.genre, limit=request.top_n * 2, include_cast=False):
-            item_id = int(item["movie_id"])
-            title_key = str(item["title"]).strip().lower()
-            if item_id in seen_ids or title_key in disliked:
-                continue
-            seen_ids.add(item_id)
-            collected.append(item)
-            if len(collected) >= request.top_n:
-                break
-
+    items = live_catalog.movie_recommendations(movie_id=movie_id, limit=limit)
     return [
         {
             "movie_id": int(item["movie_id"]),
@@ -234,10 +268,143 @@ async def personalize(request: PersonalizeRequest):
             "poster_url": item.get("poster_url"),
             "backdrop_url": item.get("backdrop_url"),
             "score": float(item.get("score") or 0.0),
-            "signal_source": "tmdb_personalized",
-            "why_this": "Matched to your likes/dislikes using TMDB search and trending signals.",
+            "signal_source": str(item.get("signal_source") or "tmdb_recommendations"),
+            "why_this": str(item.get("why_this") or "Recommended by TMDB."),
         }
-        for item in collected[: request.top_n]
+        for item in items
+    ]
+
+
+@app.get("/movies/{movie_id}/similar", response_model=list[MovieCard])
+async def movie_similar(movie_id: int, limit: int = Query(default=12, ge=1, le=30)):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    items = live_catalog.movie_similar(movie_id=movie_id, limit=limit)
+    return [
+        {
+            "movie_id": int(item["movie_id"]),
+            "title": str(item["title"]),
+            "genres": list(item.get("genres", [])),
+            "poster_url": item.get("poster_url"),
+            "backdrop_url": item.get("backdrop_url"),
+            "score": float(item.get("score") or 0.0),
+            "signal_source": str(item.get("signal_source") or "tmdb_similar"),
+            "why_this": str(item.get("why_this") or "Similar to this movie."),
+        }
+        for item in items
+    ]
+
+
+@app.post("/personalize", response_model=list[MovieCard])
+async def personalize(request: PersonalizeRequest):
+    live_catalog: TmdbCatalogClient = app.state.live_catalog
+    if not live_catalog.enabled:
+        raise HTTPException(status_code=503, detail="TMDB is not configured")
+
+    rated_items = sorted(request.rated_items, key=lambda item: float(item.rating), reverse=True)
+    positive_seeds = [item for item in rated_items if item.rating >= 4]
+    negative_ids = {int(item.movie_id) for item in rated_items if item.rating <= 2}
+    rated_ids = {int(item.movie_id) for item in rated_items}
+
+    target_count = request.top_n
+    genre_hint = (request.genre or "").strip().lower()
+    preferred_genres = {name.strip().lower() for name in request.preferred_genres if name.strip()}
+    if genre_hint:
+        preferred_genres.add(genre_hint)
+
+    mood_key = (request.mood or "").strip().lower()
+    mood_genre_map = {
+        "cinematic": {"drama", "history", "war", "mystery"},
+        "comfort": {"family", "comedy", "romance", "animation"},
+        "thriller": {"thriller", "crime", "horror", "action"},
+        "mind-bending": {"science fiction", "sci-fi & fantasy", "mystery", "fantasy"},
+    }
+    mood_genres = mood_genre_map.get(mood_key, set())
+
+    candidate_map: dict[int, dict[str, object]] = {}
+
+    for seed in positive_seeds[:8]:
+        base_weight = max(0.1, float(seed.rating) / 5.0)
+
+        rec_items = live_catalog.movie_recommendations(int(seed.movie_id), limit=max(8, target_count))
+        sim_items = live_catalog.movie_similar(int(seed.movie_id), limit=max(8, target_count))
+
+        for source_items, source_boost in ((rec_items, 0.18), (sim_items, 0.13)):
+            for item in source_items:
+                item_id = int(item["movie_id"])
+                if item_id in rated_ids or item_id in negative_ids:
+                    continue
+
+                item_genres = {str(name).lower() for name in item.get("genres", [])}
+                if genre_hint and genre_hint not in item_genres:
+                    continue
+
+                entry = candidate_map.get(item_id)
+                if entry is None:
+                    entry = {
+                        "item": item,
+                        "score": 0.0,
+                        "hits": 0,
+                    }
+                    candidate_map[item_id] = entry
+
+                shared_preferred = len(preferred_genres.intersection(item_genres))
+                mood_match = len(mood_genres.intersection(item_genres))
+                preference_boost = min(0.24, (0.07 * shared_preferred) + (0.05 * mood_match))
+
+                entry["hits"] = int(entry["hits"]) + 1
+                entry["score"] = float(entry["score"]) + float(item.get("score") or 0.0) + source_boost + (base_weight * 0.2) + preference_boost
+
+    if len(candidate_map) < target_count:
+        for item in live_catalog.latest_titles(
+            media_type="all",
+            genre=request.genre,
+            limit=max(target_count * 3, 24),
+            include_cast=False,
+        ):
+            item_id = int(item["movie_id"])
+            if item_id in rated_ids or item_id in negative_ids or item_id in candidate_map:
+                continue
+
+            item_genres = {str(name).lower() for name in item.get("genres", [])}
+            shared_preferred = len(preferred_genres.intersection(item_genres))
+            mood_match = len(mood_genres.intersection(item_genres))
+            cold_start_boost = min(0.18, (0.06 * shared_preferred) + (0.04 * mood_match))
+
+            candidate_map[item_id] = {
+                "item": item,
+                "score": float(item.get("score") or 0.0) + cold_start_boost,
+                "hits": 0,
+            }
+
+            if len(candidate_map) >= max(target_count * 2, 20):
+                break
+
+    ranked = sorted(
+        candidate_map.values(),
+        key=lambda entry: (float(entry["score"]), int(entry["hits"])),
+        reverse=True,
+    )
+
+    why_line = (
+        "Ranked from your rating history using TMDB recommendations + similar endpoints. "
+        f"High-rated seeds: {len(positive_seeds)}. Mood: {request.mood or 'none'}."
+    )
+
+    return [
+        {
+            "movie_id": int(entry["item"]["movie_id"]),
+            "title": str(entry["item"]["title"]),
+            "genres": list(entry["item"].get("genres", [])),
+            "poster_url": entry["item"].get("poster_url"),
+            "backdrop_url": entry["item"].get("backdrop_url"),
+            "score": float(entry["item"].get("score") or 0.0),
+            "signal_source": "tmdb_rating_personalized",
+            "why_this": why_line,
+        }
+        for entry in ranked[:target_count]
     ]
 
 
