@@ -39,79 +39,66 @@ npm run dev
 
 ---
 
-## Production Deployment
+## Production Deployment (Unified Vercel)
 
-### Backend → Render.com
+This repo is configured for a single Vercel deployment:
+- Frontend static build from `frontend/`
+- Backend serverless API from `backend/api/index.py`
+- Routing: `/api/*` -> FastAPI app
 
-The project is pre-configured for Render via `render.yaml`.
+### Deploy Steps
 
 1. **Push to GitHub**
    ```bash
    git init
    git add .
-   git commit -m "Initial commit"
+   git commit -m "Prepare unified Vercel deployment"
    git remote add origin <your-repo-url>
    git push -u origin main
    ```
 
-2. **Create Service on Render**
-   - Go to https://render.com
-   - Click "New" → "Web Service"
-   - Connect your GitHub repo
-   - Select branch (main)
-   - Render will auto-detect `render.yaml`
-   - Click "Create Web Service"
-   - Service will deploy automatically
-   - Note your Render URL (e.g., `https://movielens-hybrid-api.onrender.com`)
-
-3. **Backend endpoints** available at:
-   - `/health` - Health check
-   - `/search?q=toy` - Search suggestions
-   - `/recommend` - POST with movie title
-
-### Frontend → Vercel
-
-1. **Build Frontend**
-   ```bash
-   cd frontend
-   npm run build
-   # Creates frontend/dist/
-   ```
-
-2. **Option A: Vercel CLI**
-   ```bash
-   npm i -g vercel
-   cd frontend
-   vercel --prod
-   # Follow prompts
-   ```
-
-3. **Option B: Vercel Dashboard**
+2. **Create Vercel Project**
    - Go to https://vercel.com
-   - Click "Add New" → "Project"
+   - Click "Add New" -> "Project"
    - Import your GitHub repo
-   - Set root directory: `frontend`
-   - Add environment variable:
-     - Key: `VITE_API_URL`
-     - Value: `https://movielens-hybrid-api.onrender.com` (your Render URL)
-   - Click "Deploy"
+   - Keep project root as repository root
+   - Vercel will use `vercel.json`
 
-4. **Frontend** will be at your Vercel URL (auto-generated)
+3. **Set Environment Variables in Vercel**
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `TMDB_READ_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY`
+   - Optional: `ALLOWED_ORIGINS`
+   - Optional: `ALLOWED_ORIGIN_REGEX` (default supports `*.vercel.app`)
+
+4. **Deploy**
+   - Click "Deploy"
+   - Frontend and backend are deployed together under one domain
+
+### API Endpoints on Vercel
+
+- `/api/health`
+- `/api/search?q=toy`
+- `/api/catalog/latest?media_type=all&limit=24`
+- `/api/recommend` (POST)
 
 ---
 
 ## Environment Configuration
 
 ### Backend (Python)
-Set TMDB credentials for local and Render environments:
-- Python version: 3.12 (already in `render.yaml`)
+Set TMDB credentials for local and Vercel environments:
+- Python version: 3.12
 - `TMDB_READ_ACCESS_TOKEN` (preferred)
 - `TMDB_API_KEY` (optional fallback)
 
 ### Frontend (React)
 Create `frontend/.env` with:
 ```
-VITE_API_URL=https://movielens-hybrid-api.onrender.com
+# Optional for external API usage. Not required for unified Vercel deployment.
+# VITE_API_URL=https://your-backend.example.com
+VITE_SUPABASE_URL=YOUR_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 ```
 
 Or copy from template:
@@ -119,6 +106,13 @@ Or copy from template:
 cd frontend
 cp .env.example .env
 ```
+
+### Deployment Checklist
+
+Before deploying, make sure:
+- Vercel has TMDB and Supabase environment variables configured.
+- Supabase redirect URLs include your Vercel domain.
+- If `VITE_API_URL` is set, it points to a valid backend.
 
 ---
 

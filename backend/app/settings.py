@@ -24,11 +24,14 @@ def _load_local_env() -> None:
 
 _load_local_env()
 
-ALLOWED_ORIGINS = [
+_default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_env_origins = [
     origin.strip()
-    for origin in ("http://localhost:5173", "http://127.0.0.1:5173")
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+
+ALLOWED_ORIGINS = [*_default_origins, *_env_origins]
 
 # FastAPI CORS does not support wildcard hosts in allow_origins.
 # Use regex for preview deployments like https://my-app-abc123.vercel.app.

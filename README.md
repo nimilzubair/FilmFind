@@ -98,22 +98,25 @@ The homepage can use a live TMDB feed (latest movies + TV series, genres, cast, 
 
 ## Deployment
 
-### Backend → Render
-- Already configured in `render.yaml`
-- Auto-deploys from git
-- Environment: Python 3.12
-- Startup: `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`
+### Vercel (Frontend + Backend)
 
-### Frontend → Vercel
-1. Build locally:
-   ```bash
-   cd frontend
-   npm run build
-   ```
-   Output in `frontend/dist/`
+This repository is configured for a single Vercel project deployment:
+- Frontend is built from `frontend/` using Vite.
+- Backend runs as a Python serverless function from `backend/api/index.py`.
+- Requests to `/api/*` are routed to FastAPI.
 
-2. Deploy `frontend/dist` to Vercel
-   - Set `VITE_API_URL` to your Render backend URL
+1. Import this repository into Vercel.
+2. Keep the root `vercel.json` settings.
+3. Set environment variables in Vercel:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `TMDB_READ_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY`
+   - Optional: `ALLOWED_ORIGINS` and `ALLOWED_ORIGIN_REGEX`
+4. Deploy.
+
+Notes:
+- In production, frontend API helpers default to same-origin `/api`.
+- If you want to use an external backend instead, set `VITE_API_URL`.
 
 ## Project Structure
 

@@ -790,36 +790,42 @@ body {
 .auth-wrap {
   margin-inline: auto;
   width: 100%;
-  max-width: 760px;
+  max-width: 560px;
 }
 
-.flip-shell {
-  perspective: 1200px;
+.auth-card {
   width: 100%;
+  min-height: 430px;
+  perspective: 1400px;
 }
 
-.flip-card {
-  width: 100%;
-  min-height: 400px;
+.auth-card-inner {
   position: relative;
+  width: 100%;
+  min-height: 430px;
   transform-style: preserve-3d;
-  transition: transform 600ms ease;
+  transition: transform 0.72s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.flip-face {
+.auth-card.is-flipped .auth-card-inner {
+  transform: rotateY(180deg);
+}
+
+.auth-face {
   position: absolute;
   inset: 0;
   border: 1px solid rgba(115, 146, 255, 0.45);
   border-radius: 20px;
-  padding: 24px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
+  background: rgba(5, 14, 34, 0.95);
+  box-shadow: inset 0 0 14px rgba(106, 137, 255, 0.12), 0 12px 30px rgba(3, 8, 22, 0.55);
   backface-visibility: hidden;
-  background: radial-gradient(circle at 15% 0%, rgba(87, 150, 255, 0.25), transparent 35%), rgba(5, 14, 34, 0.92);
-  box-shadow: inset 0 0 24px rgba(106, 137, 255, 0.15), 0 0 30px rgba(65, 72, 159, 0.28);
+  -webkit-backface-visibility: hidden;
 }
 
-.flip-face-back {
+.auth-face-back {
   transform: rotateY(180deg);
 }
 
@@ -832,16 +838,16 @@ body {
 }
 
 .panel-title {
-  font-size: 34px;
-  margin-bottom: 16px;
+  font-size: 26px;
+  margin-bottom: 10px;
   line-height: 1.1;
 }
 
 .field-label {
   font-size: 14px;
   color: #d7e5ff;
-  margin-top: 10px;
-  margin-bottom: 6px;
+  margin-top: 8px;
+  margin-bottom: 4px;
 }
 
 .auth-input {
@@ -849,7 +855,7 @@ body {
   border: 1px solid rgba(118, 146, 255, 0.55);
   background: rgba(8, 17, 45, 0.86);
   color: #fff;
-  padding: 10px 12px;
+  padding: 9px 11px;
   outline: none;
 }
 
@@ -859,10 +865,10 @@ body {
 }
 
 .auth-submit {
-  margin-top: 16px;
+  margin-top: 12px;
   border: 0;
   border-radius: 999px;
-  padding: 12px;
+  padding: 10px;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -878,7 +884,8 @@ body {
 }
 
 .auth-switch {
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 10px;
   background: transparent;
   border: 0;
   color: #bdd3ff;

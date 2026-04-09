@@ -21,6 +21,17 @@ function isSupabaseLockRaceError(error) {
   return message.includes('auth-token') && message.includes('stole it')
 }
 
+function isUnconfirmedEmailError(error) {
+  const message = String(error?.message || error?.msg || error || '').toLowerCase()
+  const code = String(error?.code || '').toLowerCase()
+  return (
+    code === 'email_not_confirmed' ||
+    message.includes('email not confirmed') ||
+    message.includes('email_not_confirmed') ||
+    message.includes('email is not confirmed')
+  )
+}
+
 async function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -762,6 +773,12 @@ export default function App() {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
         if (error) {
+          if (isUnconfirmedEmailError(error)) {
+            setAuthMode('signup')
+            setAuthMessage('That email is not confirmed yet. Please check your inbox or continue with sign up.')
+            return
+          }
+
           throw error
         }
 
@@ -1082,7 +1099,7 @@ export default function App() {
   const normalizedSearchQuery = searchQuery.trim()
   const hasActiveSearch = normalizedSearchQuery.length > 0
   const displayName = (session?.user?.user_metadata?.full_name || '').trim() || session?.user?.email?.split('@')?.[0] || 'viewer'
-  const visibleMovieError = movieError && !movieError.toLowerCase().includes('network error') ? movieError : ''
+  const visibleMovieError = movieError
   const visibleAuthMessage =
     session && /timed out|supabase settings|check your network/i.test(String(authMessage || '')) ? '' : authMessage
 
@@ -1543,7 +1560,7 @@ export default function App() {
         )}
 
         {showAuthModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4">
+          <div className="fixed inset-0 z-[220] flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 md:items-center">
             <div className="relative w-full max-w-md">
               <button
                 type="button"
@@ -1570,7 +1587,7 @@ export default function App() {
         )}
 
         {showLogoutConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4">
+          <div className="fixed inset-0 z-[220] flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 md:items-center">
             <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950/95 p-5">
               <h3 className="text-lg font-semibold text-white">Confirm Logout</h3>
               <p className="mt-2 text-sm text-slate-300">Are you sure you want to logout?</p>

@@ -1,0 +1,43 @@
+{
+  "john": [
+    {
+      "movie_id": 603,
+      "title": "The Matrix",
+      "genres": ["Action", "Sci-Fi"],
+      "score": 0.98,
+      "reason": "High match for sci-fi and action preferences"
+    },
+    {
+      "movie_id": 155,
+      "title": "The Dark Knight",
+      "genres": ["Action", "Drama", "Crime"],
+      "score": 0.95,
+      "reason": "Strong ratings and genre overlap"
+    }
+  ],
+  "sara": [
+    {
+      "movie_id": 550,
+      "title": "Fight Club",
+      "genres": ["Drama", "Thriller"],
+      "score": 0.96,
+      "reason": "Dark psychological thriller preference"
+    },
+    {
+      "movie_id": 680,
+      "title": "Pulp Fiction",
+      "genres": ["Crime", "Drama"],
+      "score": 0.94,
+      "reason": "Stylized crime drama with strong user match"
+    }
+  ],
+  "mike": [
+    {
+      "movie_id": 157336,
+      "title": "Interstellar",
+      "genres": ["Adventure", "Drama", "Sci-Fi"],
+      "score": 0.99,
+      "reason": "Popular sci-fi with strong emotional tone"
+    }
+  ]
+}

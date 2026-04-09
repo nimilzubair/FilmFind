@@ -7,7 +7,7 @@ function LoginFace({ email, setEmail, password, setPassword, loading, onSubmit, 
         setMode('login')
         onSubmit('login', event)
       }}
-      className="flip-face"
+      className="auth-face auth-face-front"
     >
       <p className="panel-kicker">FilmFind Login</p>
       <h3 className="panel-title">Welcome back</h3>
@@ -18,7 +18,7 @@ function LoginFace({ email, setEmail, password, setPassword, loading, onSubmit, 
         value={email}
         onChange={(event) => setEmail(event.target.value)}
         className="auth-input"
-        placeholder="you@example.com"
+        placeholder="john@gmail.com"
         required
       />
 
@@ -55,7 +55,7 @@ function SignupFace({ fullName, setFullName, email, setEmail, password, setPassw
         setMode('signup')
         onSubmit('signup', event)
       }}
-      className="flip-face flip-face-back"
+      className="auth-face auth-face-back"
     >
       <p className="panel-kicker">FilmFind Create Account</p>
       <h3 className="panel-title">Join FilmFind</h3>
@@ -74,7 +74,7 @@ function SignupFace({ fullName, setFullName, email, setEmail, password, setPassw
         value={email}
         onChange={(event) => setEmail(event.target.value)}
         className="auth-input"
-        placeholder="new@example.com"
+        placeholder="john@gmail.com"
         required
       />
 
@@ -124,8 +124,8 @@ export default function AuthPanel({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="flip-shell">
-        <div className="flip-card" style={{ transform: mode === 'signup' ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
+      <div className={`auth-card ${mode === 'signup' ? 'is-flipped' : ''}`}>
+        <div className="auth-card-inner">
           <LoginFace
             email={email}
             setEmail={setEmail}
@@ -135,7 +135,6 @@ export default function AuthPanel({
             onSubmit={onSubmit}
             setMode={setMode}
           />
-
           <SignupFace
             fullName={fullName}
             setFullName={setFullName}
@@ -150,7 +149,7 @@ export default function AuthPanel({
         </div>
       </div>
 
-      {message && <p className="auth-message">{message}</p>}
+      {message && !String(message).toLowerCase().includes('logged out') ? <p className="auth-message">{message}</p> : null}
     </motion.div>
   )
 }
