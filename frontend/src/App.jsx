@@ -54,6 +54,17 @@ function matchesContentSelection(movie, selectedContentFilter) {
   return (movie.genres || []).some((genre) => String(genre).toLowerCase().includes(expectedGenre))
 }
 
+function mergeUniqueGenres(...groups) {
+  return Array.from(
+    new Set(
+      groups
+        .flat()
+        .map((genre) => String(genre || '').trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 function isSupabaseLockRaceError(error) {
   const message = String(error?.message || error || '').toLowerCase()
   return message.includes('auth-token') && message.includes('stole it')
@@ -235,6 +246,7 @@ export default function App() {
   const [selectedGenre, setSelectedGenre] = useState(ALL_GENRES)
   const [selectedMood, setSelectedMood] = useState(MOODS[0])
   const [preferredGenres, setPreferredGenres] = useState([])
+  const [genrePreviewRows, setGenrePreviewRows] = useState({})
   const [trendingMovies, setTrendingMovies] = useState([])
   const [highlyRatedMovies, setHighlyRatedMovies] = useState([])
   const [liveCatalog, setLiveCatalog] = useState([])
@@ -447,6 +459,51 @@ export default function App() {
     }
   }
 
+  const loadGenrePreview = async (genre, mediaType = selectedMediaType) => {
+    const normalizedGenre = String(genre || '').trim()
+    if (!normalizedGenre) {
+      return []
+    }
+
+    setGenrePreviewRows((current) => ({
+      ...current,
+      [normalizedGenre]: {
+        items: current[normalizedGenre]?.items || [],
+        loading: true,
+        error: '',
+      },
+    }))
+
+    try {
+      const items = await getLatestCatalog({
+        media_type: mediaType || 'all',
+        genre: normalizedGenre,
+        limit: 12,
+      })
+
+      setGenrePreviewRows((current) => ({
+        ...current,
+        [normalizedGenre]: {
+          items,
+          loading: false,
+          error: '',
+        },
+      }))
+
+      return items
+    } catch (error) {
+      setGenrePreviewRows((current) => ({
+        ...current,
+        [normalizedGenre]: {
+          items: [],
+          loading: false,
+          error: error?.message || 'Failed to load genre preview.',
+        },
+      }))
+      return []
+    }
+  }
+
   const loadRatings = async (currentSession) => {
     if (!supabase || !currentSession) {
       return {}
@@ -481,7 +538,7 @@ export default function App() {
 
     setRatedMovies(nextRatings)
     const nextFavoriteGenres = buildFavoriteGenres(nextRatings)
-    setPreferredGenres(nextFavoriteGenres)
+    setPreferredGenres((current) => mergeUniqueGenres(current, nextFavoriteGenres))
     return nextRatings
   }
 
@@ -492,7 +549,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('selected_genre, selected_content_filter, selected_media_type, onboarding_completed, email_verified, full_name')
+      .select('selected_genre, preferred_genres, selected_content_filter, selected_media_type, onboarding_completed, email_verified, full_name')
       .eq('id', currentSession.user.id)
       .maybeSingle()
 
@@ -518,6 +575,10 @@ export default function App() {
 
     if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_genre')) {
       payload.selected_genre = nextValues.selected_genre
+    }
+
+    if (Object.prototype.hasOwnProperty.call(nextValues, 'preferred_genres')) {
+      payload.preferred_genres = nextValues.preferred_genres
     }
 
     if (Object.prototype.hasOwnProperty.call(nextValues, 'selected_content_filter')) {
@@ -659,6 +720,7 @@ export default function App() {
           setSelectedGenre(profile.selected_genre || ALL_GENRES)
           setSelectedContentFilter(profile.selected_content_filter || 'all')
           setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
+          setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
         }
 
         const nextRatings = await loadRatings(resolvedSession)
@@ -703,6 +765,7 @@ export default function App() {
           setSelectedGenre(profile.selected_genre || ALL_GENRES)
           setSelectedContentFilter(profile.selected_content_filter || 'all')
           setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
+          setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
         }
 
         const nextRatings = await loadRatings(nextSession)
@@ -790,6 +853,7 @@ export default function App() {
     const persistSelections = async () => {
       await saveProfilePreferences(session, {
         selected_genre: selectedGenreValue,
+        preferred_genres: preferredGenres,
         selected_content_filter: selectedContentFilter,
         selected_media_type: selectedMediaType,
       })
@@ -798,6 +862,31 @@ export default function App() {
     persistSelections()
     return undefined
   }, [session, profileLoaded, selectedGenreValue, selectedContentFilter, selectedMediaType])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'personalize' || !profileLoaded) {
+      return undefined
+    }
+
+    const genresToRender = preferredGenres.map((genre) => String(genre || '').trim()).filter(Boolean)
+    const nextKeys = new Set(genresToRender)
+
+    setGenrePreviewRows((current) => {
+      const next = {}
+      Object.entries(current).forEach(([genre, value]) => {
+        if (nextKeys.has(genre)) {
+          next[genre] = value
+        }
+      })
+      return next
+    })
+
+    genresToRender.forEach((genre) => {
+      void loadGenrePreview(genre, selectedMediaType)
+    })
+
+    return undefined
+  }, [session, activeTab, profileLoaded, selectedMediaType, preferredGenres])
 
   const applyContentFilter = (filterKey) => {
     setSelectedContentFilter(filterKey)
@@ -1122,7 +1211,7 @@ export default function App() {
       const exists = current.includes(genre)
       const next = exists
         ? current.filter((item) => item !== genre)
-        : [genre, ...current.filter((item) => item !== genre)].slice(0, 4)
+        : mergeUniqueGenres(current, [genre])
 
       return next
     })
@@ -1202,6 +1291,8 @@ export default function App() {
     setPersonalizedMovies([])
     setActiveTab('home')
     setRatingMessage('Personalization reset successfully.')
+
+    await saveProfilePreferences(session, { preferred_genres: [] })
 
     await loadGenres()
     await Promise.allSettled([loadTrending(), loadLiveCatalog(), loadPersonalized({})])
@@ -1449,7 +1540,6 @@ export default function App() {
                 <div className="genre-row mt-4">
                   {genres
                     .filter((genre) => genre !== ALL_GENRES)
-                    .slice(0, 14)
                     .map((genre) => (
                       <button
                         key={genre}
@@ -1465,6 +1555,44 @@ export default function App() {
                 <div className="detail-actions mt-4">
                   <button type="button" className="pill" onClick={() => setActiveTab('home')}>Apply to Home</button>
                   <button type="button" className="pill ghost" onClick={resetPersonalization}>Reset Personalization</button>
+                </div>
+
+                <div className="mt-5 space-y-5">
+                  {preferredGenres.length > 0 ? (
+                    preferredGenres.map((genre) => {
+                      const previewState = genrePreviewRows[genre] || { items: [], loading: true, error: '' }
+
+                      return (
+                        <div key={genre} className="genre-preview-block">
+                          <div className="row-head">
+                            <h2>{genre}</h2>
+                            <span>{previewState.loading ? 'Loading...' : `${previewState.items.length} titles`}</span>
+                          </div>
+
+                          {previewState.error ? <p className="error-copy">{previewState.error}</p> : null}
+
+                          {previewState.loading ? (
+                            <p className="empty-copy">Loading {genre} titles...</p>
+                          ) : previewState.items.length > 0 ? (
+                            <div className="poster-scroller compact">
+                              {previewState.items.map((movie) => (
+                                <PosterTile
+                                  key={`genre-preview-${genre}-${movie.movie_id}`}
+                                  movie={movie}
+                                  tag={movie.media_type === 'tv' ? 'Series' : 'Movie'}
+                                  onOpen={openTitleDetail}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="empty-copy">No titles found for {genre} yet.</p>
+                          )}
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className="empty-copy">Select one or more genres above to preview live titles here.</p>
+                  )}
                 </div>
               </>
             ) : (

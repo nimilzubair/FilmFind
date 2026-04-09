@@ -10,6 +10,7 @@ create table if not exists public.profiles (
   full_name text,
   avatar_url text,
   selected_genre text,
+  preferred_genres text[] not null default '{}'::text[],
   selected_content_filter text not null default 'all',
   selected_media_type text not null default 'all',
   onboarding_completed boolean not null default true,
@@ -27,7 +28,14 @@ alter table if exists public.profiles
   add column if not exists selected_media_type text not null default 'all';
 
 alter table if exists public.profiles
+  add column if not exists preferred_genres text[] not null default '{}'::text[];
+
+alter table if exists public.profiles
   add column if not exists onboarding_completed boolean not null default true;
+
+update public.profiles
+set preferred_genres = coalesce(preferred_genres, '{}'::text[])
+where preferred_genres is null;
 
 -- Movies the user rates for personalization
 create table if not exists public.user_movie_ratings (
@@ -169,6 +177,7 @@ begin
     full_name,
     avatar_url,
     selected_genre,
+    preferred_genres,
     selected_content_filter,
     selected_media_type,
     onboarding_completed,
@@ -180,6 +189,7 @@ begin
     coalesce(new.raw_user_meta_data->>'full_name', ''),
     coalesce(new.raw_user_meta_data->>'avatar_url', ''),
     null,
+    '{}'::text[],
     'all',
     'all',
     false,
@@ -190,6 +200,7 @@ begin
       full_name = excluded.full_name,
       avatar_url = excluded.avatar_url,
       selected_genre = coalesce(public.profiles.selected_genre, excluded.selected_genre),
+      preferred_genres = coalesce(public.profiles.preferred_genres, excluded.preferred_genres),
       selected_content_filter = coalesce(public.profiles.selected_content_filter, excluded.selected_content_filter),
       selected_media_type = coalesce(public.profiles.selected_media_type, excluded.selected_media_type),
       onboarding_completed = coalesce(public.profiles.onboarding_completed, excluded.onboarding_completed),
