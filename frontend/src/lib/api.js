@@ -1,7 +1,15 @@
 import axios from 'axios'
 
 const configuredApiBase = (import.meta.env.VITE_API_URL || '').trim()
-const API_BASE = configuredApiBase || (import.meta.env.DEV ? 'http://localhost:8000' : '/api')
+
+function isLocalhostUrl(value) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(value)
+}
+
+const API_BASE =
+  !import.meta.env.DEV && isLocalhostUrl(configuredApiBase)
+    ? '/api'
+    : configuredApiBase || (import.meta.env.DEV ? 'http://localhost:8000' : '/api')
 
 function ensureApiBaseConfigured() {
   if (API_BASE) {

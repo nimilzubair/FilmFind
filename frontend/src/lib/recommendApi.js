@@ -1,8 +1,15 @@
 const BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || '').trim()
 
+function isLocalhostUrl(value) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(value)
+}
+
+const EFFECTIVE_BACKEND_BASE_URL =
+  !import.meta.env.DEV && isLocalhostUrl(BACKEND_BASE_URL) ? '' : BACKEND_BASE_URL
+
 function ensureBackendUrl() {
-  if (BACKEND_BASE_URL) {
-    return BACKEND_BASE_URL
+  if (EFFECTIVE_BACKEND_BASE_URL) {
+    return EFFECTIVE_BACKEND_BASE_URL
   }
 
   if (import.meta.env.DEV) {
@@ -13,7 +20,7 @@ function ensureBackendUrl() {
 }
 
 function recommendPath() {
-  if (BACKEND_BASE_URL || import.meta.env.DEV) {
+  if (EFFECTIVE_BACKEND_BASE_URL || import.meta.env.DEV) {
     return '/recommend'
   }
 

@@ -2,5 +2,8 @@ venv/
 pycache/
 *.pyc
 .env
+*.env.local
+frontend/.env.local
+frontend/.env.development.local
 frontend/node_modules/
 frontend/dist/
