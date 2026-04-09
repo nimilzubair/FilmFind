@@ -942,7 +942,13 @@ body {
 
 @media (max-width: 680px) {
   .stream-shell {
-    width: min(1380px, 94vw);
+    width: min(1380px, 96vw);
+    padding: 10px 0 24px;
+  }
+
+  .stream-topbar {
+    padding: 12px;
+    border-radius: 14px;
   }
 
   .brand-wrap {
@@ -950,23 +956,108 @@ body {
     gap: 10px;
   }
 
+  .brand-logo {
+    height: 44px;
+    max-width: 160px;
+  }
+
   .brand-tagline {
     letter-spacing: 0.03em;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     white-space: normal;
   }
 
   .stream-nav {
     width: 100%;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .nav-tab {
+    padding: 6px 9px;
+    font-size: 12px;
+  }
+
+  .topbar-search {
+    width: 100%;
+  }
+
+  .stream-search {
+    padding: 7px 10px;
+    border-radius: 18px;
+  }
+
+  .stream-search input {
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .stream-search button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .stream-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+
+  .hero-panel {
+    margin-top: 12px;
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(1.15rem, 7vw, 1.8rem);
+  }
+
+  .hero-actions button {
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+
+  .hero-poster {
+    width: min(210px, 100%);
+  }
+
+  .filter-stack {
+    margin-top: 10px;
+  }
+
+  .filter-label {
+    font-size: 0.72rem;
+  }
+
+  .genre-row {
+    gap: 6px;
+  }
+
+  .genre-chip,
+  .media-chip {
+    padding: 7px 10px;
+    font-size: 11px;
   }
 
   .detail-content {
     grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
   }
 
   .detail-poster-col {
-    max-width: 220px;
+    max-width: 170px;
+  }
+
+  .detail-actions .pill,
+  .detail-actions .pill.ghost {
+    width: 100%;
+    justify-content: center;
   }
 
   .reasons-grid {
@@ -977,23 +1068,161 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-shell {
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .panel-heading {
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+
+  .empty-copy {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .collection-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+  }
+
   .poster-scroller {
-    grid-auto-columns: minmax(160px, 185px);
+    grid-auto-columns: minmax(134px, 156px);
+    gap: 10px;
+    padding: 5px;
   }
 
   .ranked-art {
-    padding-left: 38px;
+    padding-left: 30px;
   }
 
   .poster-rank {
-    font-size: 3.5rem;
+    font-size: 2.9rem;
   }
 
   .poster-art {
-    height: 230px;
+    height: 196px;
+    padding: 8px;
   }
 
-  .hero-copy h1 {
-    font-size: clamp(1.35rem, 7vw, 2rem);
+  .poster-title {
+    font-size: 0.88rem;
+  }
+
+  .poster-cast {
+    font-size: 11px;
+  }
+
+  .rating-row {
+    grid-template-columns: 34px 1fr auto;
+    gap: 8px;
+  }
+
+  .thumb-fake {
+    width: 34px;
+    height: 44px;
+  }
+
+  .row-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .mini-like,
+  .mini-dislike {
+    width: 30px;
+    height: 30px;
+  }
+
+  .auth-wrap {
+    max-width: 100%;
+  }
+
+  .auth-card,
+  .auth-card-inner {
+    min-height: 390px;
+  }
+
+  .auth-face {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .panel-title {
+    font-size: 22px;
+  }
+
+  .auth-input {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  .stream-shell {
+    width: 100vw;
+    padding: 8px 8px 22px;
+  }
+
+  .stream-topbar,
+  .dashboard-shell,
+  .detail-page,
+  .hero-panel {
+    border-radius: 12px;
+  }
+
+  .brand-logo {
+    height: 38px;
+    max-width: 132px;
+  }
+
+  .brand-tagline {
+    font-size: 0.82rem;
+  }
+
+  .stream-search input {
+    font-size: 13px;
+  }
+
+  .hero-actions,
+  .detail-actions {
+    flex-direction: column;
+  }
+
+  .hero-actions button,
+  .pill,
+  .pill.ghost {
+    width: 100%;
+  }
+
+  .poster-scroller {
+    grid-auto-columns: minmax(122px, 142px);
+  }
+
+  .poster-art {
+    height: 182px;
+  }
+
+  .poster-title {
+    font-size: 0.82rem;
+  }
+
+  .poster-rank {
+    font-size: 2.45rem;
+    left: 6px;
+    bottom: 6px;
+  }
+
+  .auth-face {
+    padding: 12px;
+  }
+
+  .panel-title {
+    font-size: 20px;
+  }
+
+  .collection-grid {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   }
 }
