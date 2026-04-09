@@ -1,8 +1,7 @@
-backend/
 data/
-requirements.txt
 render.yaml
 schema.sql
 /src/
 venv/
-*.py
+__pycache__/
+*.pyc
