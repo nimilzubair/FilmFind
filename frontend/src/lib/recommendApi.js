@@ -27,26 +27,31 @@ function recommendPath() {
   return '/api/recommend'
 }
 
-export async function fetchRecommendations(user, limit = 10) {
-  const normalizedUser = String(user || '').trim()
-  if (!normalizedUser) {
-    throw new Error('user is required')
+export async function fetchRecommendations(seedTitle, limit = 10) {
+  const normalizedSeed = String(seedTitle || '').trim()
+  if (!normalizedSeed) {
+    throw new Error('seedTitle is required')
   }
 
   const url = new URL(recommendPath(), ensureBackendUrl())
-  url.searchParams.set('user', normalizedUser)
-  url.searchParams.set('limit', String(limit))
 
   const response = await fetch(url, {
+    method: 'POST',
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      title: normalizedSeed,
+      liked_movies: [],
+      top_n: Number(limit) || 10,
+    }),
   })
 
   const payload = await response.json()
 
   if (!response.ok) {
-    throw new Error(payload?.error || 'Unable to fetch recommendations')
+    throw new Error(payload?.detail || payload?.error || 'Unable to fetch recommendations')
   }
 
   return payload

@@ -233,7 +233,6 @@ export default function App() {
   const [detailError, setDetailError] = useState('')
   const [session, setSession] = useState(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [authMode, setAuthMode] = useState('login')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -248,6 +247,8 @@ export default function App() {
   const [genreSearchInput, setGenreSearchInput] = useState('')
   const [genreSearchQuery, setGenreSearchQuery] = useState('')
   const [preferredGenres, setPreferredGenres] = useState([])
+  const [genreFilterOpen, setGenreFilterOpen] = useState(false)
+  const [mobileGenreMenuOpen, setMobileGenreMenuOpen] = useState(false)
   const [trendingMovies, setTrendingMovies] = useState([])
   const [highlyRatedMovies, setHighlyRatedMovies] = useState([])
   const [liveCatalog, setLiveCatalog] = useState([])
@@ -535,8 +536,19 @@ export default function App() {
       return
     }
 
+    const sessionEmail =
+      String(currentSession.user?.email || '').trim() ||
+      String(currentSession.user?.user_metadata?.email || '').trim()
+
+    if (!sessionEmail) {
+      setMovieError('Unable to save profile: account email is missing.')
+      return
+    }
+
     const payload = {
       id: currentSession.user.id,
+      email: sessionEmail,
+      full_name: String(currentSession.user?.user_metadata?.full_name || '').trim() || null,
       updated_at: new Date().toISOString(),
     }
 
@@ -722,35 +734,37 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession)
 
       if (event === 'SIGNED_IN' && nextSession) {
-        setAuthMessage('Logged in successfully.')
-        setShowAuthModal(false)
-        const { profile, error: profileError } = await loadProfile(nextSession)
-        if (profileError) {
-          setAuthMessage(profileError.message || 'Failed to restore profile settings.')
-        }
+        void (async () => {
+          setAuthMessage('Logged in successfully.')
+          setShowAuthModal(false)
+          const { profile, error: profileError } = await loadProfile(nextSession)
+          if (profileError) {
+            setAuthMessage(profileError.message || 'Failed to restore profile settings.')
+          }
 
-        if (profile) {
-          setSelectedGenre(profile.selected_genre || ALL_GENRES)
-          setSelectedContentFilter(profile.selected_content_filter || 'all')
-          setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
-          setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
-          setSelectedMood(profile.preferred_mood || MOODS[0])
-        }
+          if (profile) {
+            setSelectedGenre(profile.selected_genre || ALL_GENRES)
+            setSelectedContentFilter(profile.selected_content_filter || 'all')
+            setSelectedMediaType(profile.selected_media_type || getContentFilterDetails(profile.selected_content_filter || 'all').mediaType)
+            setPreferredGenres(Array.isArray(profile.preferred_genres) ? profile.preferred_genres : [])
+            setSelectedMood(profile.preferred_mood || MOODS[0])
+          }
 
-        const nextRatings = await loadRatings(nextSession)
-        await loadTrending()
-        await loadLiveCatalog()
-        await loadPersonalized(nextRatings)
-        const needsOnboarding = profile?.onboarding_completed === false
-        setActiveTab(needsOnboarding ? 'personalize' : 'home')
-        if (needsOnboarding) {
-          await saveProfilePreferences(nextSession, { onboarding_completed: true })
-        }
-        setProfileLoaded(true)
+          const nextRatings = await loadRatings(nextSession)
+          await loadTrending()
+          await loadLiveCatalog()
+          await loadPersonalized(nextRatings)
+          const needsOnboarding = profile?.onboarding_completed === false
+          setActiveTab(needsOnboarding ? 'personalize' : 'home')
+          if (needsOnboarding) {
+            await saveProfilePreferences(nextSession, { onboarding_completed: true })
+          }
+          setProfileLoaded(true)
+        })()
         return
       }
 
@@ -771,16 +785,18 @@ export default function App() {
         setRatingMessage('')
         setMovieError('')
         setProfileLoaded(false)
-        await loadLiveCatalog()
-        await loadTrending()
+        void loadLiveCatalog()
+        void loadTrending()
         return
       }
 
       if (nextSession) {
-        const nextRatings = await loadRatings(nextSession)
-        await loadTrending()
-        await loadLiveCatalog()
-        await loadPersonalized(nextRatings)
+        void (async () => {
+          const nextRatings = await loadRatings(nextSession)
+          await loadTrending()
+          await loadLiveCatalog()
+          await loadPersonalized(nextRatings)
+        })()
       }
     })
 
@@ -843,17 +859,9 @@ export default function App() {
     setSelectedMediaType(getContentFilterDetails(filterKey).mediaType)
   }
 
-  const applyGenreSearch = () => {
-    setGenreSearchQuery(genreSearchInput.trim())
-  }
-
   const clearGenreSearch = () => {
     setGenreSearchInput('')
     setGenreSearchQuery('')
-  }
-
-  const applyMobileGenreSelection = () => {
-    setSelectedGenre(mobileGenreSelection || ALL_GENRES)
   }
 
   useEffect(() => {
@@ -866,6 +874,29 @@ export default function App() {
   useEffect(() => {
     setMobileGenreSelection(selectedGenre || ALL_GENRES)
   }, [selectedGenre])
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!mobileGenreMenuOpen) {
+        return
+      }
+
+      const target = event.target
+      if (target && typeof target.closest === 'function' && target.closest('.mobile-genre-filter')) {
+        return
+      }
+
+      setMobileGenreMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [mobileGenreMenuOpen])
 
   useEffect(() => {
     const handlePointerDown = (event) => {
@@ -886,6 +917,18 @@ export default function App() {
       document.removeEventListener('touchstart', handlePointerDown)
     }
   }, [userMenuOpen])
+
+  useEffect(() => {
+    if (!authMessage) {
+      return undefined
+    }
+
+    const timerId = window.setTimeout(() => {
+      setAuthMessage('')
+    }, 10000)
+
+    return () => window.clearTimeout(timerId)
+  }, [authMessage])
 
   useEffect(() => {
     // Keep URL in sync with view state.
@@ -1064,14 +1107,13 @@ export default function App() {
   }
 
   const handleLogout = async () => {
-    if (!supabase || authLoading) {
+    if (!supabase) {
       return
     }
 
     setUserMenuOpen(false)
-    setShowLogoutConfirm(false)
     setAuthLoading(true)
-    setAuthMessage('Logging out...')
+    setAuthMessage('Logged out.')
 
     // Clear the UI immediately so logout never feels stuck.
     setSession(null)
@@ -1091,26 +1133,14 @@ export default function App() {
     setProfileLoaded(false)
     setSearchResetSignal((value) => value + 1)
 
-    try {
-      await supabase.auth.signOut({ scope: 'local' })
-    } catch (error) {
+    void supabase.auth.signOut({ scope: 'local' }).catch((error) => {
       if (!isSupabaseLockRaceError(error)) {
         setAuthMessage(error.message || 'Failed to sign out.')
       }
-    } finally {
-      // Do not leave auth actions locked if sign out or refresh calls fail.
-      setAuthLoading(false)
-    }
-  }
+    })
 
-  const requestLogout = () => {
-    setUserMenuOpen(false)
-    setShowLogoutConfirm(true)
-  }
-
-  const confirmLogout = async () => {
-    setShowLogoutConfirm(false)
-    await handleLogout()
+    // Do not leave auth actions locked if external sign-out calls are delayed.
+    setAuthLoading(false)
   }
 
   const persistMovieRating = async (movie, rating) => {
@@ -1570,18 +1600,15 @@ export default function App() {
                   <input
                     type="text"
                     value={genreSearchInput}
-                    onChange={(event) => setGenreSearchInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        applyGenreSearch()
-                      }
+                    onChange={(event) => {
+                      const nextValue = event.target.value
+                      setGenreSearchInput(nextValue)
+                      setGenreSearchQuery(nextValue.trim())
                     }}
                     className="auth-input"
                     placeholder="Search genres"
                     aria-label="Search genres"
                   />
-                  <button type="button" className="pill" onClick={applyGenreSearch}>Search</button>
                   {(genreSearchInput || genreSearchQuery) && (
                     <button type="button" className="pill ghost" onClick={clearGenreSearch}>Clear</button>
                   )}
@@ -1712,31 +1739,94 @@ export default function App() {
           </div>
 
           <p className="filter-label mt-3">Filter by genre</p>
-          <div className="genre-row mt-2 desktop-genre-filter">
-            {sortedGenres.map((genre) => (
-              <button
-                key={genre}
-                type="button"
-                onClick={() => {
-                  setSelectedGenre(genre)
-                }}
-                className={selectedGenre === genre ? 'genre-chip active' : 'genre-chip'}
-              >
-                {genre}
-              </button>
-            ))}
+          <div className="genre-dropdown mt-2 desktop-genre-filter">
+            <button
+              type="button"
+              className="genre-dropdown-toggle"
+              onClick={() => setGenreFilterOpen((current) => !current)}
+              aria-expanded={genreFilterOpen}
+              aria-controls="desktop-genre-dropdown-panel"
+            >
+              <span>{selectedGenre === ALL_GENRES ? 'All genres' : selectedGenre}</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" className={`genre-dropdown-caret ${genreFilterOpen ? 'open' : ''}`}>
+                <path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {genreFilterOpen ? (
+              <div id="desktop-genre-dropdown-panel" className="genre-dropdown-panel">
+                <div className="genre-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedGenre(ALL_GENRES)
+                      setGenreFilterOpen(false)
+                    }}
+                    className={selectedGenre === ALL_GENRES ? 'genre-chip active' : 'genre-chip'}
+                  >
+                    {ALL_GENRES}
+                  </button>
+                  {sortedGenres.map((genre) => (
+                    <button
+                      key={genre}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGenre(genre)
+                        setGenreFilterOpen(false)
+                      }}
+                      className={selectedGenre === genre ? 'genre-chip active' : 'genre-chip'}
+                    >
+                      {genre}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mobile-genre-filter mt-2">
-            <select value={mobileGenreSelection} onChange={(event) => setMobileGenreSelection(event.target.value)}>
-              <option value={ALL_GENRES}>{ALL_GENRES}</option>
-              {sortedGenres.map((genre) => (
-                <option key={`mobile-${genre}`} value={genre}>
-                  {genre}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="media-chip" onClick={applyMobileGenreSelection}>Apply</button>
+            <button
+              type="button"
+              className="mobile-genre-toggle"
+              onClick={() => setMobileGenreMenuOpen((current) => !current)}
+              aria-expanded={mobileGenreMenuOpen}
+              aria-controls="mobile-genre-menu"
+            >
+              <span>{mobileGenreSelection === ALL_GENRES ? 'All genres' : mobileGenreSelection}</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" className={`genre-dropdown-caret ${mobileGenreMenuOpen ? 'open' : ''}`}>
+                <path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {mobileGenreMenuOpen ? (
+              <div id="mobile-genre-menu" className="mobile-genre-menu">
+                <button
+                  type="button"
+                  className={mobileGenreSelection === ALL_GENRES ? 'genre-chip active' : 'genre-chip'}
+                  onClick={() => {
+                    setMobileGenreSelection(ALL_GENRES)
+                    setSelectedGenre(ALL_GENRES)
+                    setMobileGenreMenuOpen(false)
+                  }}
+                >
+                  {ALL_GENRES}
+                </button>
+                {sortedGenres.map((genre) => (
+                  <button
+                    key={`mobile-${genre}`}
+                    type="button"
+                    className={mobileGenreSelection === genre ? 'genre-chip active' : 'genre-chip'}
+                    onClick={() => {
+                      setMobileGenreSelection(genre)
+                      setSelectedGenre(genre)
+                      setMobileGenreMenuOpen(false)
+                    }}
+                  >
+                    {genre}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -1951,22 +2041,6 @@ export default function App() {
           </div>
         )}
 
-        {showLogoutConfirm && (
-          <div className="fixed inset-0 z-[220] flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-8 md:items-center">
-            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950/95 p-5">
-              <h3 className="text-lg font-semibold text-white">Confirm Logout</h3>
-              <p className="mt-2 text-sm text-slate-300">Are you sure you want to logout?</p>
-              <div className="mt-5 flex justify-end gap-2">
-                <button type="button" className="pill ghost" onClick={() => setShowLogoutConfirm(false)}>
-                  Cancel
-                </button>
-                <button type="button" className="pill" onClick={confirmLogout}>
-                  Yes, Logout
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   )
