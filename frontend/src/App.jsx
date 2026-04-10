@@ -1073,24 +1073,8 @@ export default function App() {
     setAuthLoading(true)
     setAuthMessage('Logging out...')
 
-    if (session) {
-      try {
-        await saveProfilePreferences(session, {
-          selected_genre: selectedGenreValue,
-          preferred_genres: preferredGenres,
-          preferred_mood: selectedMood,
-          selected_content_filter: selectedContentFilter,
-          selected_media_type: selectedMediaType,
-        })
-      } catch (error) {
-        if (!isSupabaseLockRaceError(error)) {
-          setMovieError(error.message || 'Failed to save profile before logout.')
-        }
-      }
-    }
-
     try {
-      await supabase.auth.signOut({ scope: 'global' })
+      await supabase.auth.signOut({ scope: 'local' })
     } catch (error) {
       if (!isSupabaseLockRaceError(error)) {
         setAuthMessage(error.message || 'Failed to sign out.')
