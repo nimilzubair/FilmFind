@@ -1073,6 +1073,24 @@ export default function App() {
     setAuthLoading(true)
     setAuthMessage('Logging out...')
 
+    // Clear the UI immediately so logout never feels stuck.
+    setSession(null)
+    setShowAuthModal(false)
+    setActiveTab('home')
+    setSelectedDetail(null)
+    setRatedMovies({})
+    setPreferredGenres([])
+    setPersonalizedMovies([])
+    setSearchQuery('')
+    setSelectedGenre(ALL_GENRES)
+    setSelectedMediaType('all')
+    setSelectedContentFilter('all')
+    setSelectedMood(MOODS[0])
+    setRatingMessage('')
+    setMovieError('')
+    setProfileLoaded(false)
+    setSearchResetSignal((value) => value + 1)
+
     try {
       await supabase.auth.signOut({ scope: 'local' })
     } catch (error) {
@@ -1569,7 +1587,28 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="genre-row mt-4">
+                <div className="mobile-genre-picker mt-4">
+                  <div className="mobile-genre-picker-head">
+                    <p className="filter-label">Tap genres to add them</p>
+                    <span>{personalizeGenres.length} found</span>
+                  </div>
+                  <div className="mobile-genre-picker-list">
+                    {personalizeGenres.length > 0 ? personalizeGenres.map((genre) => (
+                      <button
+                        key={`mobile-personalize-${genre}`}
+                        type="button"
+                        onClick={() => togglePreferredGenre(genre)}
+                        className={preferredGenres.includes(genre) ? 'genre-chip active' : 'genre-chip'}
+                      >
+                        {genre}
+                      </button>
+                    )) : (
+                      <p className="empty-copy">No genres match your search.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="genre-row desktop-genre-cloud mt-4">
                   {personalizeGenres.map((genre) => (
                       <button
                         key={genre}

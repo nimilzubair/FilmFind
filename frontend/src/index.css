@@ -340,10 +340,45 @@ body {
   display: flex;
 }
 
+.desktop-genre-cloud {
+  display: flex;
+}
+
 .mobile-genre-filter {
   display: none;
   gap: 8px;
   align-items: center;
+}
+
+.mobile-genre-picker {
+  display: none;
+  border: 1px solid rgba(118, 149, 255, 0.22);
+  border-radius: 14px;
+  background: rgba(7, 16, 42, 0.82);
+  padding: 12px;
+}
+
+.mobile-genre-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mobile-genre-picker-head span {
+  color: #9fb7e8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-genre-picker-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .mobile-genre-filter select {
@@ -1150,6 +1185,14 @@ body {
 
   .mobile-genre-filter {
     display: flex;
+  }
+
+  .mobile-genre-picker {
+    display: block;
+  }
+
+  .desktop-genre-cloud {
+    display: none;
   }
 
   .filter-label {
