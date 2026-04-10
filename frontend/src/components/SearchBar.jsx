@@ -10,10 +10,18 @@ export default function SearchBar({ onSearch, onCommitSearch, loading, resetSign
   const inputRef = useRef(null)
   const containerRef = useRef(null)
   const lastEmittedQueryRef = useRef('')
+  const suppressSuggestionsRef = useRef(false)
 
   // Debounced search for suggestions - real-time search
   useEffect(() => {
     const timer = setTimeout(async () => {
+      if (suppressSuggestionsRef.current) {
+        setSuggestions([])
+        setShowSuggestions(false)
+        setSelectedIndex(-1)
+        return
+      }
+
       if (query.length > 0) {
         try {
           const results = await searchMovies(query, 8)
@@ -53,12 +61,14 @@ export default function SearchBar({ onSearch, onCommitSearch, loading, resetSign
     setShowSuggestions(false)
     setSelectedIndex(-1)
     lastEmittedQueryRef.current = ''
+    suppressSuggestionsRef.current = false
   }, [resetSignal])
 
   useEffect(() => {
     // Hide only the dropdown when requested externally; keep query untouched.
     setShowSuggestions(false)
     setSelectedIndex(-1)
+    suppressSuggestionsRef.current = true
   }, [closeSignal])
 
   useEffect(() => {
@@ -87,6 +97,7 @@ export default function SearchBar({ onSearch, onCommitSearch, loading, resetSign
     setShowSuggestions(false)
     setSelectedIndex(-1)
     lastEmittedQueryRef.current = title.trim()
+    suppressSuggestionsRef.current = true
     onSearch(title)
     if (onCommitSearch) {
       onCommitSearch(title)
@@ -175,10 +186,13 @@ export default function SearchBar({ onSearch, onCommitSearch, loading, resetSign
                 type="text"
                 placeholder="Search movies..."
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  suppressSuggestionsRef.current = false
+                  setQuery(e.target.value)
+                }}
                 onKeyDown={handleKeyDown}
                 onFocus={() => {
-                  if (query.trim() && suggestions.length > 0) {
+                  if (!suppressSuggestionsRef.current && query.trim() && suggestions.length > 0) {
                     setShowSuggestions(true)
                   }
                 }}

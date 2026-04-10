@@ -112,6 +112,14 @@ function StarMeter({ value }) {
   )
 }
 
+function BackArrowIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true" className="back-icon">
+      <path d="M11.5 5 7 9.5l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function filterMovies(movies, query, selectedGenre = null, selectedContentFilter = 'all') {
   const normalized = query.trim().toLowerCase()
   return movies.filter((movie) => {
@@ -332,10 +340,7 @@ export default function App() {
     [liveCatalog, searchQuery, selectedGenreValue, selectedContentFilter],
   )
 
-  const filteredPersonalizedMovies = useMemo(
-    () => filterMovies(personalizedMovies, searchQuery, selectedGenreValue, selectedContentFilter),
-    [personalizedMovies, searchQuery, selectedGenreValue, selectedContentFilter],
-  )
+  const filteredPersonalizedMovies = useMemo(() => personalizedMovies, [personalizedMovies])
 
   const sortedGenres = useMemo(
     () => genres.filter((genre) => genre !== ALL_GENRES && genre !== 'Documentary' && genre !== 'Music').sort((a, b) => a.localeCompare(b)),
@@ -352,10 +357,6 @@ export default function App() {
   }, [genres, genreSearchQuery])
 
   const favoriteGenres = useMemo(() => buildFavoriteGenres(ratedMovies), [ratedMovies])
-  const hasPersonalizedSystem = useMemo(
-    () => hasRatingSignals(ratedMovies) || preferredGenres.length > 0,
-    [ratedMovies, preferredGenres],
-  )
 
   const loadGenres = async () => {
     try {
@@ -438,12 +439,6 @@ export default function App() {
       return []
     }
 
-    // Keep personalized row empty until user provides at least one signal.
-    if (!hasRatingSignals(ratingsSnapshot) && preferredGenres.length === 0) {
-      setPersonalizedMovies([])
-      return []
-    }
-
     const rated_items = Object.values(ratingsSnapshot)
       .filter((item) => Number(item.rating || 0) > 0)
       .map((item) => ({
@@ -453,22 +448,48 @@ export default function App() {
       }))
 
     try {
-      const data = await getPersonalizedMovies({
-        genre: selectedGenreValue || apiGenreHint,
-        rated_items,
-        preferred_genres: preferredGenres,
-        mood: selectedMood,
-        top_n: 18,
+      const hasPersonalizationSignals = hasRatingSignals(ratingsSnapshot) || preferredGenres.length > 0
+      const personalized = hasPersonalizationSignals
+        ? await getPersonalizedMovies({
+            genre: null,
+            rated_items,
+            preferred_genres: preferredGenres,
+            mood: selectedMood,
+            top_n: 18,
+          })
+        : []
+
+      if (personalized.length > 0) {
+        setPersonalizedMovies(personalized)
+        return personalized
+      }
+
+      const fallback = await getLatestCatalog({
+        media_type: 'all',
+        genre: null,
+        query: null,
+        limit: 18,
       })
 
-      setPersonalizedMovies(data)
-      return data
+      setPersonalizedMovies(fallback)
+      return fallback
     } catch (error) {
-      setPersonalizedMovies([])
-      if (error?.message && !String(error.message).toLowerCase().includes('network error')) {
-        setMovieError(error.message)
+      try {
+        const fallback = await getLatestCatalog({
+          media_type: 'all',
+          genre: null,
+          query: null,
+          limit: 18,
+        })
+        setPersonalizedMovies(fallback)
+        return fallback
+      } catch (fallbackError) {
+        setPersonalizedMovies([])
+        if (fallbackError?.message && !String(fallbackError.message).toLowerCase().includes('network error')) {
+          setMovieError(fallbackError.message)
+        }
+        return []
       }
-      return []
     }
   }
 
@@ -1199,7 +1220,7 @@ export default function App() {
     if (deleteError) {
       setRatedMovies(previousRatings)
       setPreferredGenres(buildFavoriteGenres(previousRatings))
-      setRatingMessage(deleteError.message)
+      setMovieError(deleteError.message)
       return
     }
 
@@ -1209,7 +1230,7 @@ export default function App() {
       // Roll back optimistic UI state if persistence fails.
       setRatedMovies(previousRatings)
       setPreferredGenres(buildFavoriteGenres(previousRatings))
-      setRatingMessage(error.message)
+      setMovieError(error.message)
       return
     }
 
@@ -1221,8 +1242,13 @@ export default function App() {
         interaction_context: payload.interaction_context,
       },
     }))
-    setRatingMessage(`${movie.title} rated ${rating}/5.`)
     await loadPersonalized(optimisticRatings)
+
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      })
+    }
   }
 
   const togglePreferredGenre = (genre) => {
@@ -1256,6 +1282,11 @@ export default function App() {
 
   const toggleUserMenu = () => {
     setUserMenuOpen((current) => !current)
+  }
+
+  const goHome = () => {
+    setActiveTab('home')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const openTitleDetail = async (movie) => {
@@ -1317,7 +1348,7 @@ export default function App() {
 
     const { error } = await supabase.from('user_movie_ratings').delete().eq('user_id', session.user.id)
     if (error) {
-      setRatingMessage(error.message)
+      setMovieError(error.message)
       return
     }
 
@@ -1329,7 +1360,6 @@ export default function App() {
     setSelectedDetail(null)
     setPersonalizedMovies([])
     setActiveTab('home')
-    setRatingMessage('Personalization reset successfully.')
 
     await saveProfilePreferences(session, { preferred_genres: [] })
 
@@ -1396,11 +1426,21 @@ export default function App() {
   const visibleMovieError = movieError
   const visibleAuthMessage =
     session && /timed out|supabase settings|check your network/i.test(String(authMessage || '')) ? '' : authMessage
+  const isInitialBoot = !profileLoaded && loadingMovies
 
   return (
     <div className="stream-bg min-h-screen text-white">
       <div className="stream-grain" />
       <main className="stream-shell">
+        {isInitialBoot ? (
+          <div className="boot-screen">
+            <div className="boot-card">
+              <div className="boot-spinner" />
+              <p>Loading FilmFind...</p>
+            </div>
+          </div>
+        ) : null}
+
         <header className="stream-topbar">
           <div className="brand-wrap">
             <button
@@ -1493,6 +1533,12 @@ export default function App() {
 
         {activeTab === 'detail' ? (
           <section className="detail-page mt-5">
+            <div className="section-topbar">
+              <button type="button" className="back-icon-button" onClick={goHome} aria-label="Back to home">
+                <BackArrowIcon />
+              </button>
+            </div>
+
             {detailLoading ? (
               <p className="empty-copy">Loading title details...</p>
             ) : selectedDetail ? (
@@ -1556,14 +1602,18 @@ export default function App() {
                       <div className="detail-actions mt-4">
                         <p className="empty-copy w-full">Already watched it? Rate it for better personalization.</p>
                         {[1, 2, 3, 4, 5].map((value) => (
-                          <button
+                          <motion.button
                             key={value}
                             type="button"
-                            className={ratedMovies[selectedDetail.movie_id]?.rating === value ? 'media-chip active' : 'media-chip'}
+                            className={ratedMovies[selectedDetail.movie_id]?.rating === value ? 'rating-circle active' : 'rating-circle'}
                             onClick={() => persistMovieRating(selectedDetail, value)}
+                            whileHover={{ scale: 1.08, y: -1 }}
+                            whileTap={{ scale: 0.92 }}
+                            animate={ratedMovies[selectedDetail.movie_id]?.rating === value ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+                            transition={{ duration: 0.28 }}
                           >
                             {value}
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     ) : (
@@ -1578,6 +1628,12 @@ export default function App() {
           </section>
         ) : activeTab === 'personalize' ? (
           <section className="dashboard-shell mt-5" id="profile">
+            <div className="section-topbar">
+              <button type="button" className="back-icon-button" onClick={goHome} aria-label="Back to home">
+                <BackArrowIcon />
+              </button>
+            </div>
+
             {session ? (
               <>
                 <h2 className="panel-heading">Personalize your home</h2>
@@ -1697,9 +1753,11 @@ export default function App() {
           </section>
         ) : activeTab === 'collection' ? (
           <section className="dashboard-shell mt-5">
-            <div className="row-head">
+            <div className="row-head section-head">
               <h2>{selectedCollection?.label || 'Collection'}</h2>
-              <button type="button" className="row-link" onClick={() => setActiveTab('home')}>Back to Home</button>
+              <button type="button" className="back-icon-button" onClick={goHome} aria-label="Back to home">
+                <BackArrowIcon />
+              </button>
             </div>
 
             {collectionLoading ? (
@@ -1831,7 +1889,6 @@ export default function App() {
         </section>
 
         {visibleMovieError && <p className="error-copy">{visibleMovieError}</p>}
-        {ratingMessage && <p className="success-copy">{ratingMessage}</p>}
 
         {!session ? (
           <>
@@ -1990,11 +2047,6 @@ export default function App() {
                       <h2 className="panel-heading mt-6">Based on your preferences</h2>
                       {loadingMovies ? (
                         <p className="empty-copy">Loading personalized recommendations...</p>
-                      ) : !hasPersonalizedSystem ? (
-                        <div className="detail-actions mt-2">
-                          <p className="empty-copy">Personalized content is empty until you set your preferences.</p>
-                          <button type="button" className="pill" onClick={() => setActiveTab('personalize')}>Personalize now</button>
-                        </div>
                       ) : personalizedRailMovies.length > 0 ? (
                         <div className="poster-scroller compact">
                           {personalizedRailMovies.map((movie) => (
@@ -2002,7 +2054,10 @@ export default function App() {
                           ))}
                         </div>
                       ) : (
-                        <p className="empty-copy">Rate a few titles to build your personalized feed.</p>
+                        <div className="detail-actions mt-2">
+                          <p className="empty-copy">We are loading all-type recommendations for you.</p>
+                          <button type="button" className="pill" onClick={() => setActiveTab('personalize')}>Tune preferences</button>
+                        </div>
                       )}
                     </>
                   )}
